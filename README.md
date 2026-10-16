@@ -244,8 +244,11 @@ temporarily bans the address. Run `docker compose restart qbittorrent` and try a
 **Radarr says the download folder doesn't exist.** Run `docker compose up -d`
 again; the `init` step recreates missing folders.
 
-**Plex shows a movie but it won't play / "permission denied".** On Linux, make
-sure your existing media is readable by `PUID`:
+**A file you copied in doesn't show up in Plex, or won't play.** Plex can only
+see files it's allowed to read, and files from cameras, phones or AirDrop are
+often private to your user. From the project folder, run:
+`chmod -R a+rX data/media` (macOS/Linux), then in Plex use **Scan Library Files**.
+On Linux you can instead give the files to `PUID`:
 `sudo chown -R $(id -u):$(id -g) data/media`.
 
 **Library Import shows empty matches.** Reload the page and scroll slowly; Radarr
