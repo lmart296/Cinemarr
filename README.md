@@ -204,6 +204,47 @@ change on its own).
 
 ---
 
+## Tearing it down
+
+Your media is never inside a container; it's plain files in a folder on your
+computer. Tearing down the server leaves them where they are.
+
+**1. Stop and remove the server.** From the project folder:
+
+```bash
+docker compose down              # stops and removes all the containers
+docker compose down --rmi all    # same, and also deletes the downloaded images
+```
+
+Nothing under `DATA_DIR` or `CONFIG_DIR` is touched. To run it again later,
+`docker compose up -d` picks up where you left off.
+
+**2. Find your files.** The two folders are set in `.env`:
+
+```bash
+grep -E '^(DATA_DIR|CONFIG_DIR)=' .env      # Windows: findstr "DATA_DIR CONFIG_DIR" .env
+```
+
+With the defaults they're inside the project folder:
+
+| Folder | What's in it | What to do with it |
+|---|---|---|
+| `data/media/movies`, `data/media/tv` | **Your library**, already named and sorted (`Movie (Year)/Movie (Year).mkv`) | Keep it. Copy it anywhere, or point any media player at it. |
+| `data/torrents` | Unfinished or leftover downloads | Safe to delete. Finished files there are hardlinks to the library copy, so deleting them doesn't delete your movies. |
+| `data/recycle` | Files Radarr/Sonarr replaced or removed in the last 7 days | Check it, then delete. |
+| `config/` | App settings, Plex watch history and artwork | Delete it, or keep it to restore the server exactly as it was. |
+
+**3. Move your library out before deleting the project folder.** With the
+default `DATA_DIR=./data`, your media is *inside* the project folder, so
+deleting the folder deletes your movies too. On Linux, if deleting `config/`
+says "permission denied", use `sudo rm -rf config`.
+
+**4. Optional: remove the server from your Plex account.** At
+[app.plex.tv](https://app.plex.tv) → Settings → **Authorized Devices**, filter
+by **Servers**, and remove it. Your TVs and phones then stop listing it.
+
+---
+
 ## Optional: VPN for downloads
 
 1. Pick a WireGuard VPN provider that
