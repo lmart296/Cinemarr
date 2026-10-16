@@ -5,7 +5,7 @@
 # Update:     docker compose pull && docker compose up -d
 #
 # Only Plex (32400) is meant to be reachable from other devices without
-# BIND_IP. Never port-forward any of the other ports on your router.
+# BIND_IP. Never port-forward any of these ports on your router.
 # Note: ports published by Docker bypass host firewalls like ufw, which is
 # why the web UIs bind to BIND_IP (default 127.0.0.1 = this machine only).
 
@@ -51,10 +51,26 @@ services:
       - ${CONFIG_DIR:-./config}/plex:/config
       # Read-only: even a compromised Plex cannot change or delete your media.
       - ${DATA_DIR:-./data}/media:/data/media:ro
+
+  # Docker Desktop (macOS/Windows) hides each device's address: Plex would see
+  # every connection coming from the Docker VM, treat your TVs as remote, and
+  # refuse the first sign-in. This relay makes connections arrive from Plex's
+  # own network, which Plex counts as local. Because of that, never
+  # port-forward 32400 with this setup.
+  # Linux doesn't need it (compose.linux.yaml turns it off).
+  plex-lan:
+    image: haproxy:3.4-alpine
+    container_name: plex-lan
+    <<: *hardening
+    cap_drop:
+      - ALL
+    depends_on:
+      - plex
+    configs:
+      - source: plex-lan
+        target: /usr/local/etc/haproxy/haproxy.cfg
     ports:
-      - "32400:32400/tcp"
-      - "32410:32410/udp"
-      - "32412-32414:32412-32414/udp"
+      - "32400:32400"
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
@@ -140,9 +156,29 @@ services:
     tty: true
     environment:
       PLEX_HOST: plex
+      PLEX_VIA_RELAY: "true"
+      SERVER_IP: ${SERVER_IP:-}
       LAN_SUBNET: ${LAN_SUBNET:-192.168.1.0/24}
       PLEX_REMOTE_ACCESS: ${PLEX_REMOTE_ACCESS:-false}
     volumes:
       - ./bootstrap:/app:ro
       - ${CONFIG_DIR:-./config}:/cfg:ro
     command: ["python", "-u", "/app/bootstrap.py"]
+
+configs:
+  # Plain TCP relay; Plex sees the relay's address, not the device's.
+  plex-lan:
+    content: |
+      resolvers docker
+        nameserver dns 127.0.0.11:53
+      defaults
+        mode tcp
+        timeout connect 5s
+        timeout client 1h
+        timeout server 1h
+      frontend lan
+        bind :32400
+        default_backend plex
+      backend plex
+        # Re-resolved via Docker's DNS, so it follows Plex if it's recreated.
+        server plex plex:32400 resolvers docker init-addr none

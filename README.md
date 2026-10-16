@@ -53,9 +53,11 @@ Open `.env` in a text editor and set at least:
 - `COMPOSE_FILE`: on **Linux**, use `compose.yaml:compose.linux.yaml`
 - `TZ`: your time zone
 - `PUID` / `PGID`: on **Linux**, the output of `id -u` and `id -g`
+- `SERVER_IP`: this computer's address on your home network (`.env` shows how
+  to find it). Needed on **macOS and Windows** so TVs and phones find Plex.
 - `BIND_IP`: your server's LAN IP if you want to open the web UIs from other
   devices at home, or leave `127.0.0.1` for this computer only
-- `LAN_SUBNET`: your home network, usually `192.168.1.0/24`
+- `LAN_SUBNET` (Linux, Plex Pass only): your home network, usually `192.168.1.0/24`
 
 ### 2. Start everything
 
@@ -66,12 +68,15 @@ docker compose ps -a     # everything should say "running" (init says "exited (0
 
 ### 3. Sign in to Plex
 
-On **macOS and Windows**, Plex must be linked to your account with a claim
-token: get one at [plex.tv/claim](https://plex.tv/claim), put it in `PLEX_CLAIM`
-in `.env`, and run `docker compose up -d` within 4 minutes. (Optional on Linux.)
+Open `http://localhost:32400/web` on the server and sign in with your Plex
+account (a free account is fine). Plex offers to add this server to your
+account; accept, and give it a name. No claim token is needed.
 
-Open `http://<server-ip>:32400/web` **from the server itself** (or a browser on
-the same network) and sign in. Then add two libraries:
+On a Linux server without a screen, open it from another computer through an
+SSH tunnel: `ssh -L 32400:localhost:32400 you@server`, then
+`http://localhost:32400/web`.
+
+Then add two libraries:
 
 - **Movies** → `/data/media/movies`
 - **TV Shows** → `/data/media/tv`
@@ -119,7 +124,7 @@ qBittorrent, stop at 100%, disappear from qBittorrent, and show up in Plex.
 | qBittorrent | Login; save path; **stop seeding at 100%**; UPnP off; refuses to download `.exe`, `.bat`, `.scr`, `.lnk`, `.msi` and similar files inside torrents |
 | Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin; Plex library refresh after each import |
 | Prowlarr | Login required; pushes indexers to Radarr and Sonarr |
-| Plex | Your LAN marked as local; secure connections **preferred**; media deletion off; DLNA off; remote access off (unless `PLEX_REMOTE_ACCESS=true`) |
+| Plex | Secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
 
 ---
 
@@ -153,12 +158,12 @@ could reach.**
 
 | Protection | How |
 |---|---|
-| Nothing exposed to the internet by default | Only Plex listens beyond `BIND_IP`, and remote access is off. Don't port-forward anything unless you have Plex Pass and want remote streaming, and then only TCP 32400. |
+| Nothing exposed to the internet by default | Only Plex listens beyond `BIND_IP`, and remote access is off. Don't port-forward anything. On Linux, with Plex Pass and remote streaming wanted, forward only TCP 32400. On macOS/Windows never forward it: every connection reaches Plex through the `plex-lan` relay and looks local, so remote access isn't supported there. |
 | Web UIs stay private | Bound to `BIND_IP` (default `127.0.0.1`). Docker bypasses host firewalls, so this binding is what keeps them off the network. |
 | Plex can't damage your media | The library is mounted **read-only** into Plex. Media deletion is off. |
 | The torrent client is boxed in | qBittorrent only sees the downloads folder, never your library or settings. No inbound peer port is opened. |
 | Risky files never land on disk | Executables and scripts inside torrents are skipped. Radarr/Sonarr only import video files. |
-| No privilege escalation | Containers run as your user (`PUID`) with `no-new-privileges`; Seerr also drops all Linux capabilities. |
+| No privilege escalation | Apps run as your user (`PUID`) with `no-new-privileges`; Seerr and the Plex relay also drop all Linux capabilities. |
 | Logins everywhere | Every web UI requires a username and password. |
 | Optional VPN for torrents | `compose.vpn.yaml` adds a kill switch: if the VPN drops, qBittorrent has no network at all. |
 
@@ -190,6 +195,10 @@ docker image prune -f
 ```
 
 Run it monthly, or schedule it (cron on Linux/macOS, Task Scheduler on Windows).
+
+If an update changes the relay settings in `compose.yaml`, also run
+`docker compose up -d --force-recreate plex-lan` (Compose doesn't notice that
+change on its own).
 
 **Back up** the `config/` folder occasionally. It holds all app settings.
 
@@ -249,10 +258,19 @@ matches in batches. Unmatched rows can be fixed by searching in the Movie column
 | | Linux | macOS | Windows |
 |---|---|---|---|
 | Runs the full stack | Yes | Yes | Yes |
-| TVs find Plex automatically | Yes | Usually not; add the server by IP in the TV app if needed | Same as macOS |
-| Plex knows devices are local | Yes | No: Docker Desktop hides device addresses, so home devices count as remote | Same as macOS |
+| TVs find Plex automatically | Yes | Apps signed in to your Plex account find it (set `SERVER_IP`) | Same as macOS |
+| Plex knows devices are local | Yes | Yes, through the `plex-lan` relay | Same as macOS |
+| Remote streaming (Plex Pass) | Optional | Not supported | Not supported |
 | GPU transcoding | Yes (`compose.gpu.yaml`, needs Plex Pass) | No | No |
 | Instant hardlink imports | Yes | Yes | Often falls back to copying |
+
+**Why macOS/Windows use a relay:** Docker Desktop runs containers in a small VM
+and hides each device's address, so Plex would see every TV and phone as one
+outside address. It would then treat them as remote (asking for a Remote Watch
+Pass) and refuse the first sign-in. The `plex-lan` service passes connections
+through Plex's own Docker network, which Plex counts as local. The catch is that
+internet connections would look local too, which is why remote access stays off
+on these systems and 32400 must never be port-forwarded.
 
 On Windows, keep the project folder on a normal drive like `C:\cinemarr`, and
 store media under `DATA_DIR` rather than a network share.

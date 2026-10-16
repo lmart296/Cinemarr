@@ -12,8 +12,9 @@ Sets up:
                renaming, recycle bin, Plex library refresh
   Sonarr       same as Radarr, for TV
   Prowlarr     login, sync to Radarr + Sonarr
-  Plex         LAN subnet, secure connections preferred, media deletion off,
-               DLNA off, remote access off (unless PLEX_REMOTE_ACCESS=true)
+  Plex         secure connections preferred, media deletion off, DLNA off,
+               home address (SERVER_IP), LAN subnet (Linux), remote access
+               off (unless PLEX_REMOTE_ACCESS=true, Linux only)
 Left for you: indexers in Prowlarr, Plex libraries, and Seerr's first-run sign-in.
 """
 import getpass
@@ -32,6 +33,9 @@ CFG = Path("/cfg")
 PLEX_HOST = os.environ.get("PLEX_HOST", "plex")
 LAN_SUBNET = os.environ.get("LAN_SUBNET", "192.168.1.0/24")
 PLEX_REMOTE = os.environ.get("PLEX_REMOTE_ACCESS", "false").lower() in ("1", "true", "yes")
+# macOS/Windows: devices reach Plex through the plex-lan relay (see compose.yaml).
+PLEX_VIA_RELAY = os.environ.get("PLEX_VIA_RELAY", "false").lower() in ("1", "true", "yes")
+SERVER_IP = os.environ.get("SERVER_IP", "").strip()
 PLEX_PREFS = CFG / "plex/Library/Application Support/Plex Media Server/Preferences.xml"
 
 BLOCKED_FILES = "\n".join(
@@ -257,18 +261,34 @@ def configure_plex(token):
     base = f"http://{PLEX_HOST}:32400"
     if not wait_for("Plex", f"{base}/identity", timeout=120):
         return
+    remote = PLEX_REMOTE
+    if remote and PLEX_VIA_RELAY:
+        # Behind the relay every connection looks local, including ones from
+        # the internet, so remote access stays off.
+        warn("PLEX_REMOTE_ACCESS is ignored on macOS/Windows; remote access stays off")
+        remote = False
     prefs = {
-        "LanNetworksBandwidth": LAN_SUBNET,  # which addresses count as "local"
         "secureConnections": 1,              # 1 = Preferred
         "allowMediaDeletion": 0,
         "DlnaEnabled": 0,                    # DLNA has no login; keep it off
-        "PublishServerOnPlexOnlineKey": 1 if PLEX_REMOTE else 0,  # remote access
+        "PublishServerOnPlexOnlineKey": 1 if remote else 0,  # remote access
     }
+    if not PLEX_VIA_RELAY:
+        # Which addresses count as "local" (Plex Pass only). Behind the relay
+        # Plex's default, its own network, is already right.
+        prefs["LanNetworksBandwidth"] = LAN_SUBNET
+    if SERVER_IP:
+        # Tell apps where to find the server on your home network.
+        prefs["customConnections"] = f"http://{SERVER_IP}:32400"
     for key, value in prefs.items():
         step(f"Plex {key}", request, "PUT",
              f"{base}/:/prefs?{urllib.parse.urlencode({key: value, 'X-Plex-Token': token})}")
-    ok(f"Plex: LAN {LAN_SUBNET}, secure connections preferred, deletion off, DLNA off, "
-       f"remote access {'on' if PLEX_REMOTE else 'off'}")
+    ok(f"Plex: secure connections preferred, deletion off, DLNA off, "
+       f"remote access {'on' if remote else 'off'}"
+       + (f", address http://{SERVER_IP}:32400" if SERVER_IP else ""))
+    if PLEX_VIA_RELAY and not SERVER_IP:
+        warn("SERVER_IP isn't set in .env, so TVs and phones may not find Plex "
+             "on your network. Set it and re-run.")
 
 
 # ---------------------------------------------------------------- main
@@ -334,8 +354,9 @@ def main():
     if token:
         configure_plex(token)
     else:
-        warn("Plex isn't signed in yet. Open it at http://<server-ip>:32400/web, sign in, "
-             "then re-run this script to finish Plex settings and Radarr/Sonarr refresh.")
+        warn("Plex isn't signed in yet. Open http://localhost:32400/web on the server, "
+             "sign in, then re-run this script to finish Plex settings and Radarr/Sonarr "
+             "refresh.")
 
     plex_addr = PLEX_HOST
     print(f"""
