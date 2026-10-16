@@ -348,9 +348,8 @@ finish() {
   local bind
   bind=$(env_get BIND_IP)
   say "One thing only you can do"
-  info "Prowlarr (http://$bind:9696): Indexers > add your sources; they sync to"
-  info "Radarr and Sonarr. In each indexer's advanced settings, set Apps Minimum"
-  info "Seeders to about 10."
+  info "Prowlarr (http://$bind:9696): Indexers > add your sources. They sync to"
+  info "Radarr and Sonarr, already set to need 10+ seeders."
   if confirm "Open Prowlarr in your browser?"; then
     open_url "http://$bind:9696" || info "Open http://$bind:9696"
   fi

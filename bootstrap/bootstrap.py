@@ -12,7 +12,7 @@ Sets up:
                renaming, recycle bin; no Plex token (any old Plex connection
                is removed)
   Sonarr       same as Radarr, for TV
-  Prowlarr     login, sync to Radarr + Sonarr
+  Prowlarr     login, sync to Radarr + Sonarr, 10+ seeders for every indexer
   Seerr        your Plex account as its admin, Plex server and libraries,
                Radarr + Sonarr, auto-request from your Plex Watchlist
   Plex         Movies and TV Shows libraries,
@@ -47,6 +47,9 @@ SERVER_IP = os.environ.get("SERVER_IP", "").strip()
 PLEX_PREFS = CFG / "plex/Library/Application Support/Plex Media Server/Preferences.xml"
 SEERR = "http://seerr:5055/api/v1"
 SEERR_SETTINGS = CFG / "seerr/settings.json"
+
+# Well-seeded releases download faster and are far less likely to be fake.
+MIN_SEEDERS = 10
 
 BLOCKED_FILES = "\n".join(
     # Windows
@@ -201,6 +204,19 @@ class Arr:
             if n.get("implementation") == "PlexServer":
                 request("DELETE", f"{self.base}/notification/{n['id']}", headers=self.headers)
                 ok(f"{self.name}: Plex connection '{n.get('name')}' removed (no Plex token kept)")
+
+
+def set_min_seeders(prowlarr):
+    """Sync profiles apply to every indexer you add later. Only raises the
+    number, so a higher value you chose yourself is kept."""
+    for profile in prowlarr.get("/appprofile"):
+        if profile.get("minimumSeeders", 0) >= MIN_SEEDERS:
+            ok(f"Prowlarr: '{profile['name']}' profile already needs "
+               f"{profile['minimumSeeders']}+ seeders")
+            continue
+        profile["minimumSeeders"] = MIN_SEEDERS
+        prowlarr.put(f"/appprofile/{profile['id']}", profile)
+        ok(f"Prowlarr: '{profile['name']}' profile needs {MIN_SEEDERS}+ seeders")
 
 
 # ---------------------------------------------------------------- qBittorrent
@@ -493,6 +509,7 @@ def main():
 
     log("Prowlarr")
     step("login", prowlarr.set_login, user, password)
+    step("minimum seeders", set_min_seeders, prowlarr)
     for app, port in ((radarr, 7878), (sonarr, 8989)):
         step(f"{app.name} sync", prowlarr.upsert, "applications", app.name, app.name,
              {"prowlarrUrl": "http://prowlarr:9696",
@@ -517,8 +534,8 @@ def main():
 Done. Left for you:
 
   Prowlarr  http://<BIND_IP>:9696 -> Indexers -> add your sources.
-            They sync to Radarr and Sonarr automatically. In each indexer's
-            advanced settings, set Apps Minimum Seeders to about 10.
+            They sync to Radarr and Sonarr automatically, each needing 10+
+            seeders.
 """)
 
 

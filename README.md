@@ -101,9 +101,10 @@ changed (for example a new home-network address), and skips what's done.
 ### 2. Add your search sources
 
 **Prowlarr** (`http://<BIND_IP>:9696`) → Indexers → add your search sources.
-They sync to Radarr and Sonarr. Under each indexer's advanced settings, set
-**Apps Minimum Seeders** to about `10`; well-seeded releases are faster and far
-less likely to be fake. This is the only step left by hand.
+They sync to Radarr and Sonarr automatically. The bootstrap has already set
+them to need at least **10 seeders**; well-seeded releases are faster and far
+less likely to be fake. (An indexer's own **Apps Minimum Seeders** setting, if
+you fill it in, overrides that.) This is the only step left by hand.
 
 ### 3. Test it
 
@@ -137,7 +138,7 @@ What `setup.sh` does, if you'd rather do it yourself:
 |---|---|
 | qBittorrent | Its own password (different from the other apps'); save path; **stop seeding at 100%**; UPnP off; skips programs, scripts, installers and archives inside torrents (`.exe`, `.scr`, `.lnk`, `.msi`, `.dmg`, `.pkg`, `.sh`, `.zip`, `.rar` and similar) |
 | Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin. They get no Plex token |
-| Prowlarr | Login required; pushes indexers to Radarr and Sonarr |
+| Prowlarr | Login required; pushes indexers to Radarr and Sonarr; every indexer needs **10+ seeders** |
 | Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically |
 | Plex | Scans for new files itself (as soon as a change is detected, and every 15 minutes); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
 
