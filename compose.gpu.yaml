@@ -2,9 +2,14 @@
 # (Plex only uses it with an active Plex Pass.)
 #
 # Check you have one:  ls /dev/dri    (should list renderD128)
+# Plex runs as your user, so it needs the GPU's group. Find its number with
+#   stat -c %g /dev/dri/renderD128
+# and put it in .env as RENDER_GID.
 # Enable it in .env:   COMPOSE_FILE=compose.yaml:compose.linux.yaml:compose.gpu.yaml
 
 services:
   plex:
     devices:
       - /dev/dri:/dev/dri
+    group_add:
+      - ${RENDER_GID:?set RENDER_GID in .env (stat -c %g /dev/dri/renderD128)}

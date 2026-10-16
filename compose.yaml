@@ -14,11 +14,21 @@ x-hardening: &hardening
     - no-new-privileges:true
   restart: unless-stopped
 
+# linuxserver images, run as your user from the start (no root init step),
+# with a read-only system and no Linux capabilities. Only /config, the
+# mounted data folders and the tmpfs folders below are writable.
+x-nonroot: &nonroot
+  <<: *hardening
+  user: "${PUID:-1000}:${PGID:-1000}"
+  read_only: true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /run:exec,uid=${PUID:-1000},gid=${PGID:-1000}
+    - /tmp:uid=${PUID:-1000},gid=${PGID:-1000}
+
 x-env: &env
-  PUID: ${PUID:-1000}
-  PGID: ${PGID:-1000}
   TZ: ${TZ:-Etc/UTC}
-  UMASK: "002"
 
 x-after-init: &after-init
   init:
@@ -29,6 +39,16 @@ services:
   init:
     image: alpine:3.22
     restart: "no"
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    # Just enough to create folders and change their owner.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -41,7 +61,7 @@ services:
   plex:
     image: lscr.io/linuxserver/plex:latest
     container_name: plex
-    <<: *hardening
+    <<: *nonroot
     depends_on: *after-init
     environment:
       <<: *env
@@ -62,6 +82,7 @@ services:
     image: haproxy:3.4-alpine
     container_name: plex-lan
     <<: *hardening
+    # Not read_only: Compose writes the inline config below into the container.
     cap_drop:
       - ALL
     depends_on:
@@ -70,12 +91,14 @@ services:
       - source: plex-lan
         target: /usr/local/etc/haproxy/haproxy.cfg
     ports:
-      - "32400:32400"
+      # Only your home-network address (IPv4), never every interface: no
+      # IPv6, no VPN or café Wi-Fi. Without SERVER_IP, this computer only.
+      - ${SERVER_IP:-127.0.0.1}:32400:32400
 
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
-    <<: *hardening
+    <<: *nonroot
     depends_on: *after-init
     environment:
       <<: *env
@@ -91,7 +114,7 @@ services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
-    <<: *hardening
+    <<: *nonroot
     depends_on: *after-init
     environment: *env
     volumes:
@@ -102,7 +125,7 @@ services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
-    <<: *hardening
+    <<: *nonroot
     depends_on: *after-init
     environment: *env
     volumes:
@@ -115,7 +138,7 @@ services:
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
-    <<: *hardening
+    <<: *nonroot
     depends_on: *after-init
     environment: *env
     volumes:
@@ -125,7 +148,7 @@ services:
       - ${BIND_IP:-127.0.0.1}:8989:8989
 
   seerr:
-    image: ghcr.io/seerr-team/seerr:latest
+    image: ghcr.io/seerr-team/seerr:v3
     container_name: seerr
     init: true
     <<: *hardening
@@ -152,6 +175,12 @@ services:
   bootstrap:
     image: python:3.12-alpine
     profiles: ["tools"]
+    depends_on: *after-init
+    user: "${PUID:-1000}:${PGID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     stdin_open: true
     tty: true
     environment:

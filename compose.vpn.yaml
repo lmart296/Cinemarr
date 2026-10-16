@@ -4,16 +4,25 @@
 # e.g.  COMPOSE_FILE=compose.yaml:compose.vpn.yaml
 # then: docker compose up -d --remove-orphans
 #
-# qBittorrent shares gluetun's network, so the VPN is its only way out. If the
-# tunnel drops, gluetun's firewall blocks everything. Nothing else needs to
-# change: gluetun answers to the name "qbittorrent" on the internal network.
+# qBittorrent shares gluetun's network, so the VPN is its only way to the
+# internet. If the tunnel drops, gluetun's firewall blocks internet traffic
+# (qBittorrent can still talk to Radarr/Sonarr on the internal network).
+# Nothing else needs to change: gluetun answers to the name "qbittorrent" on
+# the internal network.
+# gluetun's control server (port 8000) is reachable by the other containers;
+# current versions require a login for it by default. Don't turn that off
+# (HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE): any container could stop the VPN.
 # Supported providers: https://github.com/qdm12/gluetun-wiki
 
 services:
   gluetun:
-    image: qmcgaw/gluetun:latest
+    # Major version only: fixes arrive with "docker compose pull", but a new
+    # major release (which could change the firewall) needs a deliberate bump.
+    image: qmcgaw/gluetun:v3
     container_name: gluetun
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       init:
         condition: service_completed_successfully

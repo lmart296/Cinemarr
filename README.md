@@ -29,7 +29,9 @@ Plex Watchlist ─▶ Seerr ─▶ Radarr / Sonarr ─▶ Prowlarr (search)
 
 - **Docker**
   - Linux: [Docker Engine](https://docs.docker.com/engine/install/) with the Compose plugin
-  - macOS / Windows: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+  - macOS: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+  - Windows: [Docker Desktop](https://www.docker.com/products/docker-desktop/) plus
+    Ubuntu in WSL (step 0 below)
 - A computer that stays on, with space for your media.
 
 Linux gives the best results: Plex sees your devices directly, TVs find it
@@ -40,80 +42,92 @@ limits listed under [Platform notes](#platform-notes).
 
 ## Quick start
 
-### 1. Get the files and create your settings
+### 0. Windows only: install Ubuntu
+
+Open **PowerShell as administrator** (right-click → Run as administrator) and run:
+
+```powershell
+wsl --install
+```
+
+Restart the computer, then open **Ubuntu** from the Start menu and create a Linux
+username and password when asked. (If `wsl --install` only prints help text, WSL
+is already there: run `wsl --install -d Ubuntu` instead.) Docker Desktop connects
+to Ubuntu automatically; if `docker` isn't found in Ubuntu, turn on Ubuntu under
+Docker Desktop → Settings → Resources → WSL Integration.
+
+Do everything below in the **Ubuntu** window, in your Linux home folder (`cd ~`),
+not under `/mnt/c`. Files there are much faster for Docker, imports are instant,
+and Plex notices new movies right away. You can browse them from Windows at
+`\\wsl$\Ubuntu\home\<your-linux-user>\cinemarr`.
+
+### 1. Get the files and run the setup
 
 ```bash
 git clone https://github.com/lmart296/cinemarr.git
 cd cinemarr
-cp .env.example .env          # Windows: copy .env.example .env
+./setup.sh
 ```
 
-Open `.env` in a text editor and set at least:
+It explains each step and asks before doing it:
 
-- `COMPOSE_FILE`: on **Linux**, use `compose.yaml:compose.linux.yaml`
-- `TZ`: your time zone
-- `PUID` / `PGID`: on **Linux**, the output of `id -u` and `id -g`
-- `SERVER_IP`: this computer's address on your home network (`.env` shows how
-  to find it). Needed on **macOS and Windows** so TVs and phones find Plex.
-- `BIND_IP`: your server's LAN IP if you want to open the web UIs from other
-  devices at home, or leave `127.0.0.1` for this computer only
-- `LAN_SUBNET` (Linux, Plex Pass only): your home network, usually `192.168.1.0/24`
+1. Checks that Docker is installed and running.
+2. Works out your settings: time zone, your home-network address and subnet,
+   the user that should own the files (Linux), whether this is Docker Desktop
+   (relay setup) or Linux (host networking), and a GPU if you have one (Linux).
+   It asks where to keep settings and media, and whether other devices at home
+   may open the web pages. Then it writes `.env`, readable only by you.
+3. Linux with ufw: offers to let your home network reach Plex.
+4. Starts the server (`docker compose up -d`).
+5. Opens Plex in your browser and waits while you sign in with your Plex account
+   (a free one is fine). Do it right away: until a new server is signed in, any
+   device on your network could claim it. You don't pick any folders: as soon
+   as you're signed in, the script adds the **Movies** and **TV Shows**
+   libraries. Plex's "Media Library" setup page won't list them; just click
+   Next, and they're on Plex's home screen afterwards.
+6. Configures every app, Seerr included (see
+   [What the bootstrap sets](#what-the-bootstrap-sets)).
+   It asks for a username and two passwords: one for Radarr, Sonarr and Prowlarr,
+   and a different one for qBittorrent (Radarr and Sonarr hand qBittorrent its
+   password on every login, so it must not also open them). Nothing is saved, so
+   keep both in your password manager. On a brand-new install it also asks for
+   qBittorrent's temporary password; get it in another terminal with
+   `docker compose logs qbittorrent | grep -i password`.
 
-### 2. Start everything
+It's safe to run again at any time: it keeps your `.env`, only asks about what
+changed (for example a new home-network address), and skips what's done.
+`./setup.sh -y` accepts every default.
 
-```bash
-docker compose up -d
-docker compose ps -a     # everything should say "running" (init says "exited (0)")
-```
+### 2. Add your search sources
 
-### 3. Sign in to Plex
+**Prowlarr** (`http://<BIND_IP>:9696`) → Indexers → add your search sources.
+They sync to Radarr and Sonarr. Under each indexer's advanced settings, set
+**Apps Minimum Seeders** to about `10`; well-seeded releases are faster and far
+less likely to be fake. This is the only step left by hand.
 
-Open `http://localhost:32400/web` on the server and sign in with your Plex
-account (a free account is fine). Plex offers to add this server to your
-account; accept, and give it a name. No claim token is needed.
-
-On a Linux server without a screen, open it from another computer through an
-SSH tunnel: `ssh -L 32400:localhost:32400 you@server`, then
-`http://localhost:32400/web`.
-
-Then add two libraries:
-
-- **Movies** → `/data/media/movies`
-- **TV Shows** → `/data/media/tv`
-
-### 4. Configure the rest automatically
-
-```bash
-docker compose run --rm bootstrap
-```
-
-It asks for one username and password to use for qBittorrent, Radarr, Sonarr and
-Prowlarr, then configures everything listed under [What the bootstrap sets](#what-the-bootstrap-sets).
-It's safe to re-run at any time.
-
-On a brand-new install, qBittorrent has a temporary password. The script will
-ask for it; get it in another terminal with:
-
-```bash
-docker compose logs qbittorrent | grep -i password
-```
-
-### 5. Finish the two manual steps
-
-The bootstrap prints these at the end, with your API keys filled in.
-
-1. **Prowlarr** → Indexers → add your search sources. They sync to Radarr and Sonarr.
-   Under each indexer's advanced settings, set **Apps Minimum Seeders** to about `10`;
-   well-seeded releases are faster and far less likely to be fake.
-2. **Seerr** → sign in with Plex, connect it to Radarr and Sonarr, then turn on
-   **Auto-Request** (Users → your user → Settings) and **Auto-Approve**
-   (Permissions).
-
-### 6. Test it
+### 3. Test it
 
 Add a public-domain film (for example *Night of the Living Dead*, 1968) to your
 Plex Watchlist. Within a few minutes it should appear in Seerr → Radarr →
-qBittorrent, stop at 100%, disappear from qBittorrent, and show up in Plex.
+qBittorrent, stop at 100%, disappear from qBittorrent, and show up in Plex
+(usually seconds after the import; at most 15 minutes).
+
+### Setting it up by hand
+
+What `setup.sh` does, if you'd rather do it yourself:
+
+1. `cp .env.example .env && chmod 600 .env`, then set at least `COMPOSE_FILE`
+   (`compose.yaml` with Docker Desktop, `compose.yaml:compose.linux.yaml` with
+   Docker Engine on Linux), `TZ`, `PUID`/`PGID` (Linux: `id -u`, `id -g`),
+   `SERVER_IP` (required with Docker Desktop: Plex listens only on this address),
+   and `BIND_IP`. `.env.example` explains each one.
+2. `docker compose up -d`
+3. Open `http://<SERVER_IP>:32400/web` (Linux: `http://localhost:32400/web`, or
+   through `ssh -L 32400:localhost:32400 you@server` without a screen) and sign
+   in. To skip the sign-in window entirely, put a token from
+   [plex.tv/claim](https://plex.tv/claim) in `PLEX_CLAIM` before the first start
+   (it works once and expires after 4 minutes; empty the line afterwards).
+4. `docker compose run --rm bootstrap`
 
 ---
 
@@ -121,10 +135,11 @@ qBittorrent, stop at 100%, disappear from qBittorrent, and show up in Plex.
 
 | App | Settings |
 |---|---|
-| qBittorrent | Login; save path; **stop seeding at 100%**; UPnP off; refuses to download `.exe`, `.bat`, `.scr`, `.lnk`, `.msi` and similar files inside torrents |
-| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin; Plex library refresh after each import |
+| qBittorrent | Its own password (different from the other apps'); save path; **stop seeding at 100%**; UPnP off; skips programs, scripts, installers and archives inside torrents (`.exe`, `.scr`, `.lnk`, `.msi`, `.dmg`, `.pkg`, `.sh`, `.zip`, `.rar` and similar) |
+| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin. They get no Plex token |
 | Prowlarr | Login required; pushes indexers to Radarr and Sonarr |
-| Plex | Secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
+| Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically |
+| Plex | Scans for new files itself (as soon as a change is detected, and every 15 minutes); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
 
 ---
 
@@ -158,14 +173,21 @@ could reach.**
 
 | Protection | How |
 |---|---|
-| Nothing exposed to the internet by default | Only Plex listens beyond `BIND_IP`, and remote access is off. Don't port-forward anything. On Linux, with Plex Pass and remote streaming wanted, forward only TCP 32400. On macOS/Windows never forward it: every connection reaches Plex through the `plex-lan` relay and looks local, so remote access isn't supported there. |
+| Nothing exposed to the internet by default | Only Plex listens beyond `BIND_IP`, and remote access is off. Don't port-forward anything. On Linux, with Plex Pass and remote streaming wanted, forward only TCP 32400. On macOS/Windows never forward it: every connection reaches Plex through the `plex-lan` relay and looks local, so remote access isn't supported there. The relay listens only on `SERVER_IP` (IPv4), not on IPv6 or other networks such as café Wi-Fi. For the same reason, never add anything to Plex's "List of IP addresses and networks that are allowed without auth" on macOS/Windows: it would let every device, internet ones included, in as you. |
 | Web UIs stay private | Bound to `BIND_IP` (default `127.0.0.1`). Docker bypasses host firewalls, so this binding is what keeps them off the network. |
 | Plex can't damage your media | The library is mounted **read-only** into Plex. Media deletion is off. |
-| The torrent client is boxed in | qBittorrent only sees the downloads folder, never your library or settings. No inbound peer port is opened. |
-| Risky files never land on disk | Executables and scripts inside torrents are skipped. Radarr/Sonarr only import video files. |
-| No privilege escalation | Apps run as your user (`PUID`) with `no-new-privileges`; Seerr and the Plex relay also drop all Linux capabilities. |
-| Logins everywhere | Every web UI requires a username and password. |
-| Optional VPN for torrents | `compose.vpn.yaml` adds a kill switch: if the VPN drops, qBittorrent has no network at all. |
+| The torrent client is boxed in | qBittorrent only sees the downloads folder, never your library or settings, and has its own password, so it can't log into the other apps. No inbound peer port is opened. (Imported files are hardlinks: until Radarr/Sonarr remove the finished torrent, qBittorrent still shares the files it downloaded.) |
+| Risky files are skipped | Programs, scripts, installers and archives inside torrents aren't downloaded. Radarr/Sonarr only import video files. |
+| No privilege escalation | Every app runs as your user (`PUID`) from the start, with a read-only system, no Linux capabilities and `no-new-privileges`. |
+| Logins everywhere | Every web UI requires a sign-in: a username and password, or your Plex account for Seerr (the bootstrap finishes Seerr's setup, so nobody else can claim it). |
+| Optional VPN for torrents | `compose.vpn.yaml` adds a kill switch: if the VPN drops, qBittorrent can't reach the internet. |
+
+**Keys to your Plex account.** Radarr and Sonarr never get your Plex sign-in
+token: instead of them telling Plex to scan after each import, Plex watches the
+library itself, so a new movie can take up to 15 minutes to appear. Seerr does
+hold your Plex sign-in (the bootstrap gives it the server's, which Seerr needs to
+read your Watchlist), so treat `config/seerr` as private. Turn on
+two-factor authentication for your Plex account.
 
 ### Recommended host hardening (Linux)
 
@@ -175,11 +197,16 @@ These live outside Docker, so they're up to you:
 # Automatic security updates
 sudo apt install -y unattended-upgrades && sudo dpkg-reconfigure -plow unattended-upgrades
 
-# Firewall: SSH from your LAN only (adjust the subnet)
+# Firewall: SSH and Plex from your LAN only (adjust the subnet)
 sudo ufw allow from 192.168.1.0/24 to any port 22 proto tcp
-sudo ufw allow 32400/tcp
+sudo ufw allow from 192.168.1.0/24 to any port 32400 proto tcp
+sudo ufw allow from 192.168.1.0/24 to any port 32410:32414 proto udp   # TVs finding Plex
+sudo ufw allow from 172.16.0.0/12 to any port 32400 proto tcp          # the other containers
 sudo ufw enable
 ```
+
+Only with Plex Pass remote streaming (and TCP 32400 forwarded on your router),
+widen the Plex rule to `sudo ufw allow 32400/tcp`.
 
 Also: use SSH keys and set `PasswordAuthentication no` in `/etc/ssh/sshd_config`,
 and turn on two-factor authentication for your Plex account.
@@ -189,16 +216,19 @@ and turn on two-factor authentication for your Plex account.
 ## Updating
 
 ```bash
-docker compose pull
-docker compose up -d
-docker image prune -f
+./setup.sh update
 ```
 
-Run it monthly, or schedule it (cron on Linux/macOS, Task Scheduler on Windows).
+It pulls new versions, restarts the apps and offers to delete the old images
+(by hand: `docker compose pull && docker compose up -d && docker image prune -f`).
+Run it monthly, or schedule `./setup.sh update -y` (cron on Linux/macOS; on
+Windows, Task Scheduler running `wsl -d Ubuntu -- ~/cinemarr/setup.sh update -y`).
+Seerr and gluetun follow their `v3` releases; a new major version is a
+deliberate change to `compose.yaml`.
 
-If an update changes the relay settings in `compose.yaml`, also run
-`docker compose up -d --force-recreate plex-lan` (Compose doesn't notice that
-change on its own).
+`./setup.sh update` also recreates the `plex-lan` relay, because Compose doesn't
+notice changes to its settings on its own (by hand:
+`docker compose up -d --force-recreate plex-lan`).
 
 **Back up** the `config/` folder occasionally. It holds all app settings.
 
@@ -253,7 +283,12 @@ by **Servers**, and remove it. Your TVs and phones then stop listing it.
 3. Add `:compose.vpn.yaml` to the end of `COMPOSE_FILE`.
 4. `docker compose up -d --remove-orphans`
 5. Check: `docker compose logs gluetun | grep -i "public ip"` should show the VPN's
-   address, not yours.
+   address, not yours. Then check qBittorrent itself:
+   `docker compose exec qbittorrent wget -qO- https://ipinfo.io/ip` should print
+   the same VPN address.
+6. Optional second layer: in qBittorrent → Settings → Advanced, set
+   **Network interface** to `tun0`, so it can't send anything outside the tunnel
+   even if the firewall were changed.
 
 Nothing else changes; Radarr and Sonarr keep using the host name `qbittorrent`.
 
@@ -277,7 +312,9 @@ nslookup 192-168-1-50.<your-id>.plex.direct 1.1.1.1    # via Cloudflare
 ```
 
 If the first returns nothing and the second returns your server's IP, change DNS
-on your TVs and computers.
+on your TVs and computers. This also matters for privacy: without it, devices
+fall back to plain `http://`, and anyone on your Wi-Fi could read their Plex
+sign-in tokens.
 
 **A TV or phone lists the new server but says it's unavailable.** The app is
 still using what it learned from your Plex account before the server was set
@@ -290,6 +327,11 @@ temporarily bans the address. Run `docker compose restart qbittorrent` and try a
 
 **Radarr says the download folder doesn't exist.** Run `docker compose up -d`
 again; the `init` step recreates missing folders.
+
+**`init: refusing to run`.** `CONFIG_DIR` or `DATA_DIR` in `.env` points at a
+folder that looks like a system or home folder (it contains `etc`, `bin`, `usr`
+or `.ssh`), or one of the stack's folders is a symlink. The setup hands those
+folders to `PUID`, so point them at folders used only by this stack.
 
 **A file you copied in doesn't show up in Plex, or won't play.** Plex can only
 see files it's allowed to read, and files from cameras, phones or AirDrop are
@@ -308,11 +350,11 @@ matches in batches. Unmatched rows can be fixed by searching in the Movie column
 | | Linux | macOS | Windows |
 |---|---|---|---|
 | Runs the full stack | Yes | Yes | Yes |
-| TVs find Plex automatically | Yes | Apps signed in to your Plex account find it (set `SERVER_IP`) | Same as macOS |
+| TVs find Plex automatically | Yes (with ufw, allow UDP 32410-32414 from your LAN) | Apps signed in to your Plex account find it (set `SERVER_IP`) | Same as macOS |
 | Plex knows devices are local | Yes | Yes, through the `plex-lan` relay | Same as macOS |
 | Remote streaming (Plex Pass) | Optional | Not supported | Not supported |
-| GPU transcoding | Yes (`compose.gpu.yaml`, needs Plex Pass) | No | No |
-| Instant hardlink imports | Yes | Yes | Often falls back to copying |
+| GPU transcoding | Yes (`compose.gpu.yaml` and `RENDER_GID`, needs Plex Pass) | No | No |
+| Instant hardlink imports | Yes | Yes | Yes, with files inside Ubuntu (not `/mnt/c`) |
 
 **Why macOS/Windows use a relay:** Docker Desktop runs containers in a small VM
 and hides each device's address, so Plex would see every TV and phone as one
@@ -320,10 +362,18 @@ outside address. It would then treat them as remote (asking for a Remote Watch
 Pass) and refuse the first sign-in. The `plex-lan` service passes connections
 through Plex's own Docker network, which Plex counts as local. The catch is that
 internet connections would look local too, which is why remote access stays off
-on these systems and 32400 must never be port-forwarded.
+on these systems, the relay listens only on `SERVER_IP`, and 32400 must never be
+port-forwarded.
 
-On Windows, keep the project folder on a normal drive like `C:\cinemarr`, and
-store media under `DATA_DIR` rather than a network share.
+On Windows, keep the project and `DATA_DIR` inside Ubuntu (your Linux home
+folder). A folder on a Windows drive (`/mnt/c`, `/mnt/d`) works but is slower,
+imports become copies, and Plex only notices new files on its 15-minute scan.
+Untested so far: whether Windows Firewall lets other devices reach Plex without
+a prompt. If TVs can't connect, allow Docker Desktop through the firewall for
+private networks.
+
+Docker Desktop on **Linux** behaves like macOS (relay setup, no host
+networking); `setup.sh` detects it and picks the right files.
 
 ---
 
