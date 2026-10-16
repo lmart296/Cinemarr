@@ -238,6 +238,12 @@ nslookup 192-168-1-50.<your-id>.plex.direct 1.1.1.1    # via Cloudflare
 If the first returns nothing and the second returns your server's IP, change DNS
 on your TVs and computers.
 
+**A TV or phone lists the new server but says it's unavailable.** The app is
+still using what it learned from your Plex account before the server was set
+up. Sign out of the Plex app on that device and sign back in (restarting the
+app isn't enough). Also run the bootstrap first: on macOS/Windows it's what
+tells your apps the server's home address (`SERVER_IP`).
+
 **Bootstrap can't log into qBittorrent.** After several failed logins qBittorrent
 temporarily bans the address. Run `docker compose restart qbittorrent` and try again.
 
