@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cinemarr setup: from a fresh clone to a running server, one question at a time.
+# Cinemarr setup: from a fresh clone to a running server, one question at a time.
 #
 #   ./setup.sh           set up, or re-check an existing setup (safe to re-run)
 #   ./setup.sh update    download new versions and restart

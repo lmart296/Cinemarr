@@ -1,4 +1,4 @@
-# cinemarr
+# Cinemarr
 
 A self-hosted Plex server with a hands-off request pipeline, packaged so it runs
 the same on Linux, macOS and Windows. The only thing you install is Docker.
@@ -64,7 +64,7 @@ and Plex notices new movies right away. You can browse them from Windows at
 ### 1. Get the files and run the setup
 
 ```bash
-git clone https://github.com/lmart296/cinemarr.git
+git clone https://github.com/lmart296/Cinemarr.git cinemarr
 cd cinemarr
 ./setup.sh
 ```

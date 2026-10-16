@@ -1,4 +1,4 @@
-# cinemarr: Plex + request pipeline (Seerr -> Radarr/Sonarr -> qBittorrent)
+# Cinemarr: Plex + request pipeline (Seerr -> Radarr/Sonarr -> qBittorrent)
 #
 # Start:      docker compose up -d
 # Configure:  docker compose run --rm bootstrap
