@@ -1,0 +1,45 @@
+# OPTIONAL: route qBittorrent through a VPN with a kill switch.
+#
+# Enable it in .env: fill in the VPN_* values and add this file to COMPOSE_FILE,
+# e.g.  COMPOSE_FILE=compose.yaml:compose.vpn.yaml
+# then: docker compose up -d --remove-orphans
+#
+# qBittorrent shares gluetun's network, so the VPN is its only way out. If the
+# tunnel drops, gluetun's firewall blocks everything. Nothing else needs to
+# change: gluetun answers to the name "qbittorrent" on the internal network.
+# Supported providers: https://github.com/qdm12/gluetun-wiki
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    restart: unless-stopped
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      VPN_SERVICE_PROVIDER: ${VPN_PROVIDER:?set VPN_PROVIDER in .env}
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:?set WIREGUARD_PRIVATE_KEY in .env}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES:-}
+      SERVER_COUNTRIES: ${VPN_COUNTRY:-}
+    volumes:
+      - ${CONFIG_DIR:-./config}/gluetun:/gluetun
+    ports:
+      - ${BIND_IP:-127.0.0.1}:8080:8080
+    networks:
+      default:
+        aliases:
+          - qbittorrent
+
+  qbittorrent:
+    network_mode: "service:gluetun"
+    ports: !reset []
+    depends_on:
+      gluetun:
+        condition: service_healthy

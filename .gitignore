@@ -1,0 +1,13 @@
+# Secrets and per-machine settings
+.env
+.env.*
+!.env.example
+
+# App data and media (never commit these)
+config/
+data/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+__pycache__/

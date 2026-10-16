@@ -1,0 +1,24 @@
+# Linux hosts: run Plex on the host network.
+#
+# Plex then sees each device's real address, so local-network detection and
+# auto-discovery (TVs finding the server) work properly. Docker Desktop on
+# macOS and Windows can't do this, which is why it's a separate file.
+#
+# Enable it in .env:  COMPOSE_FILE=compose.yaml:compose.linux.yaml
+
+services:
+  plex:
+    network_mode: host
+    ports: !reset []
+
+  # Containers reach a host-network Plex through the host gateway.
+  radarr:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  sonarr:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  seerr:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  bootstrap:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      PLEX_HOST: host.docker.internal

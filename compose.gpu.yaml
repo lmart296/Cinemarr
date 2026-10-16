@@ -1,0 +1,10 @@
+# Linux hosts with an Intel/AMD GPU: hardware transcoding for Plex.
+# (Plex only uses it with an active Plex Pass.)
+#
+# Check you have one:  ls /dev/dri    (should list renderD128)
+# Enable it in .env:   COMPOSE_FILE=compose.yaml:compose.linux.yaml:compose.gpu.yaml
+
+services:
+  plex:
+    devices:
+      - /dev/dri:/dev/dri
