@@ -18,6 +18,7 @@ Sets up:
   Prowlarr     login, sync to Radarr + Sonarr, 10+ seeders for every indexer
   Seerr        your Plex account as its admin, Plex server and libraries,
                Radarr + Sonarr (HD-1080p), auto-request from your Plex Watchlist
+               only (no other user can auto-request)
   Plex         Movies and TV Shows libraries,
                scans for new files itself when they change (no scheduled scans),
                secure connections preferred, media deletion off, DLNA off,
@@ -50,6 +51,9 @@ SERVER_IP = os.environ.get("SERVER_IP", "").strip()
 PLEX_PREFS = CFG / "plex/Library/Application Support/Plex Media Server/Preferences.xml"
 SEERR = "http://seerr:5055/api/v1"
 SEERR_SETTINGS = CFG / "seerr/settings.json"
+# Seerr permission bits (server/lib/permissions.ts).
+SEERR_ADMIN = 2
+SEERR_AUTO_REQUEST = 8388608 | 16777216 | 33554432  # AUTO_REQUEST, _MOVIE, _TV
 
 # Well-seeded releases download faster and are far less likely to be fake.
 MIN_SEEDERS = 10
@@ -438,6 +442,29 @@ def pick_profile(profiles, preferred=PROFILE):
     return found or profiles[0]
 
 
+def restrict_auto_requests(api):
+    """Only the owner's Plex Watchlist turns into requests. Seerr can
+    auto-request from the Watchlist of every Plex user it imports; that needs
+    an Auto-Request permission (being an admin counts too)."""
+    main = api("GET", "/settings/main")
+    default = main.get("defaultPermissions", 0)
+    if default & SEERR_AUTO_REQUEST:
+        api("POST", "/settings/main", {"defaultPermissions": default & ~SEERR_AUTO_REQUEST})
+    ok("Seerr: new users can't auto-request (Default Permissions)")
+    for user in api("GET", "/user?take=1000")["results"]:
+        if user["id"] == 1:  # the owner
+            continue
+        name = user.get("displayName") or user.get("email") or f"user {user['id']}"
+        perms = user.get("permissions", 0)
+        if perms & SEERR_ADMIN:
+            warn(f"Seerr: {name} is an admin, so their Plex Watchlist can still "
+                 f"create requests. Remove admin in Seerr > Users if that's not wanted.")
+        elif perms & SEERR_AUTO_REQUEST:
+            api("POST", f"/user/{user['id']}/settings/permissions",
+                {"permissions": perms & ~SEERR_AUTO_REQUEST})
+            ok(f"Seerr: Auto-Request removed from {name}")
+
+
 def configure_seerr(token, radarr, sonarr):
     if not wait_for("Seerr", f"{SEERR}/status"):
         return
@@ -493,6 +520,7 @@ def configure_seerr(token, radarr, sonarr):
     user.update(watchlistSyncMovies=True, watchlistSyncTv=True)
     api("POST", "/user/1/settings/main", user)
     ok("Seerr: Watchlist adds become requests, approved automatically")
+    step("Seerr auto-request", restrict_auto_requests, api)
 
     if not public.get("initialized"):
         api("POST", "/settings/initialize")

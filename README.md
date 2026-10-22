@@ -139,7 +139,7 @@ What `setup.sh` does, if you'd rather do it yourself:
 | qBittorrent | Its own password (different from the other apps'); save path; **stop seeding at 100%**; UPnP off; skips programs, scripts, installers and archives inside torrents (`.exe`, `.scr`, `.lnk`, `.msi`, `.dmg`, `.pkg`, `.sh`, `.zip`, `.rar` and similar) |
 | Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin; subtitle files (`.srt`) imported along with the video; the **HD-1080p** profile and 1080p file sizes (see [Download quality](#download-quality)). They get no Plex token |
 | Prowlarr | Login required; pushes indexers to Radarr and Sonarr; every indexer needs **10+ seeders** |
-| Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (HD-1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically |
+| Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (HD-1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically; **nobody else can auto-request** (see [Who can request](#who-can-request)) |
 | Plex | Scans for new files itself as soon as they change (no scheduled scans, so the media drive can sleep); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
 
 ---
@@ -187,6 +187,35 @@ In Sonarr the same works per series.
 Rokus and similar devices can't play HEVC directly, so Plex converts it while you
 watch, and on a slow CPU that stutters. x264 releases play directly almost
 everywhere.
+
+---
+
+## Who can request
+
+**Signing in to Seerr** uses your **Plex account**, not the passwords the
+bootstrap asked for. Those only open Radarr, Sonarr and Prowlarr (one password)
+and qBittorrent (the other).
+
+**Auto-requests come from your Watchlist only.** Seerr can turn the Plex
+Watchlist of *every* Plex user it knows about into requests, for example friends
+you share your server with who sign in to Seerr. That needs Seerr's
+**Auto-Request** permission, so the bootstrap keeps it to you:
+
+- **Settings → Users → Default Permissions** never includes Auto-Request, so new
+  users can request by hand (and you approve) but their Watchlists do nothing.
+- Each run, Auto-Request is removed from every other user, and any other
+  **admin** gets a warning: admins pass every permission check, so their
+  Watchlist would still request.
+
+**A movie you don't remember adding?** Open **Requests** in Seerr: each request
+shows who it was **requested by**. If it says you, something signed in as you
+added it to your Plex Watchlist: a shared TV, a friend's phone, an old device.
+
+- Turn on **two-factor authentication** for your Plex account
+  ([app.plex.tv](https://app.plex.tv) → Account settings → Security).
+- Check [app.plex.tv](https://app.plex.tv) → Settings → **Authorized Devices**
+  and remove anything you don't recognise. Changing your Plex password with
+  "sign out connected devices" removes them all at once.
 
 ---
 
