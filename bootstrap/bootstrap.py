@@ -9,12 +9,12 @@ Linux, macOS and Windows. Standard library only.
 Sets up:
   qBittorrent  its own password, save path, never-seed limits, UPnP off, blocked file types
   Radarr       login, root folder, qBittorrent client (remove on import),
-               renaming, recycle bin; no Plex token (any old Plex connection
-               is removed)
+               renaming, recycle bin, HD-1080p profile and 1080p file sizes;
+               no Plex token (any old Plex connection is removed)
   Sonarr       same as Radarr, for TV
   Prowlarr     login, sync to Radarr + Sonarr, 10+ seeders for every indexer
   Seerr        your Plex account as its admin, Plex server and libraries,
-               Radarr + Sonarr, auto-request from your Plex Watchlist
+               Radarr + Sonarr (HD-1080p), auto-request from your Plex Watchlist
   Plex         Movies and TV Shows libraries,
                scans for new files itself (on change + every 15 minutes),
                secure connections preferred, media deletion off, DLNA off,
@@ -50,6 +50,21 @@ SEERR_SETTINGS = CFG / "seerr/settings.json"
 
 # Well-seeded releases download faster and are far less likely to be fake.
 MIN_SEEDERS = 10
+
+# Default quality: 1080p at sane sizes. No remuxes (a 40 GB 1080p remux once
+# got picked automatically), no 4K, nothing below 1080p.
+PROFILE = "HD-1080p"
+PROFILE_QUALITIES = {
+    "Radarr": {"Bluray-1080p", "WEBDL-1080p", "WEBRip-1080p"},
+    "Sonarr": {"Bluray-1080p", "WEBDL-1080p", "WEBRip-1080p", "HDTV-1080p"},
+}
+CUTOFF_QUALITY = "Bluray-1080p"  # upgrades stop here
+# (min, preferred, max) in GB per hour of runtime.
+SIZES_GB_PER_HOUR = {
+    "WEBDL-1080p": (1, 3, 5),
+    "WEBRip-1080p": (1, 3, 5),
+    "Bluray-1080p": (2, 4, 7),
+}
 
 BLOCKED_FILES = "\n".join(
     # Windows
@@ -219,6 +234,47 @@ def set_min_seeders(prowlarr):
         ok(f"Prowlarr: '{profile['name']}' profile needs {MIN_SEEDERS}+ seeders")
 
 
+def mib_per_minute(gb_per_hour):
+    """Radarr and Sonarr store sizes as MiB per minute of runtime."""
+    return round(gb_per_hour * 1024 / 60, 1)
+
+
+def ensure_quality_profile(app):
+    """Create or update the HD-1080p profile. Qualities come in groups (e.g.
+    "WEB 1080p"); a group is allowed if any of its qualities is."""
+    allowed = PROFILE_QUALITIES[app.name]
+    profile = next((p for p in app.get("/qualityprofile") if p["name"] == PROFILE), None)
+    base = profile or app.get("/qualityprofile/schema")
+    cutoff = None
+    for item in base["items"]:
+        members = item.get("items") or [item]
+        for member in members:
+            member["allowed"] = member["quality"]["name"] in allowed
+        if item.get("items"):
+            item["allowed"] = any(m["allowed"] for m in members)
+        if any(m["quality"]["name"] == CUTOFF_QUALITY for m in members):
+            cutoff = item["id"] if item.get("items") else item["quality"]["id"]
+    base.update(name=PROFILE, upgradeAllowed=True, cutoff=cutoff)
+    if profile:
+        app.put(f"/qualityprofile/{profile['id']}", base)
+    else:
+        base.pop("id", None)
+        app.post("/qualityprofile", base)
+    ok(f"{app.name}: '{PROFILE}' profile allows {', '.join(sorted(allowed))}; "
+       f"upgrades up to {CUTOFF_QUALITY}")
+
+
+def set_quality_sizes(app):
+    definitions = app.get("/qualitydefinition")
+    for d in definitions:
+        sizes = SIZES_GB_PER_HOUR.get(d["quality"]["name"])
+        if sizes:
+            d["minSize"], d["preferredSize"], d["maxSize"] = map(mib_per_minute, sizes)
+    app.put("/qualitydefinition/update", definitions)
+    ok(f"{app.name}: 1080p sizes per hour of runtime: WEB 1-5 GB (3 preferred), "
+       f"Bluray 2-7 GB (4 preferred)")
+
+
 # ---------------------------------------------------------------- qBittorrent
 def configure_qbittorrent(user, password, arr_password):
     base = "http://qbittorrent:8080/api/v2"
@@ -371,9 +427,12 @@ def configure_plex(token):
 
 
 # ---------------------------------------------------------------- Seerr
-def pick_profile(profiles, preferred="HD-1080p"):
-    """Quality profile for requests: 1080p if the app has it, else the first."""
-    return next((p for p in profiles if p["name"] == preferred), profiles[0])
+def pick_profile(profiles, preferred=PROFILE):
+    """Quality profile for requests: the one named, else the app's first."""
+    found = next((p for p in profiles if p["name"] == preferred), None)
+    if not found:
+        warn(f"No quality profile named '{preferred}'; using '{profiles[0]['name']}'")
+    return found or profiles[0]
 
 
 def configure_seerr(token, radarr, sonarr):
@@ -497,6 +556,8 @@ def main():
         step("root folder", app.ensure_root_folder, root)
         rename = "renameMovies" if app is radarr else "renameEpisodes"
         step("renaming", app.patch_config, "naming", "renaming on", **{rename: True})
+        step("quality profile", ensure_quality_profile, app)
+        step("quality sizes", set_quality_sizes, app)
         step("recycle bin", app.patch_config, "mediamanagement",
              "recycle bin /data/recycle (7 days)",
              recycleBin="/data/recycle", recycleBinCleanupDays=7)
@@ -527,11 +588,15 @@ def main():
              "sign in, then re-run this script to finish Plex (including automatic "
              "library scans) and Seerr.")
 
+    seerr_profile = (f"Seerr uses the {PROFILE} profile for Radarr and Sonarr. If you "
+                     f"set Seerr up by hand, choose {PROFILE} for both.")
     if os.environ.get("CINEMARR_SETUP"):
-        print("\nDone.")  # setup.sh shows the remaining steps itself
+        print(f"\nDone. {seerr_profile}")  # setup.sh shows the remaining steps itself
         return
-    print("""
-Done. Left for you:
+    print(f"""
+Done. {seerr_profile}
+
+Left for you:
 
   Prowlarr  http://<BIND_IP>:9696 -> Indexers -> add your sources.
             They sync to Radarr and Sonarr automatically, each needing 10+

@@ -137,10 +137,56 @@ What `setup.sh` does, if you'd rather do it yourself:
 | App | Settings |
 |---|---|
 | qBittorrent | Its own password (different from the other apps'); save path; **stop seeding at 100%**; UPnP off; skips programs, scripts, installers and archives inside torrents (`.exe`, `.scr`, `.lnk`, `.msi`, `.dmg`, `.pkg`, `.sh`, `.zip`, `.rar` and similar) |
-| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin. They get no Plex token |
+| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin; the **HD-1080p** profile and 1080p file sizes (see [Download quality](#download-quality)). They get no Plex token |
 | Prowlarr | Login required; pushes indexers to Radarr and Sonarr; every indexer needs **10+ seeders** |
-| Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically |
+| Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (HD-1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically |
 | Plex | Scans for new files itself (as soon as a change is detected, and every 15 minutes); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
+
+---
+
+## Download quality
+
+Radarr and Sonarr both use a profile called **HD-1080p**, and Seerr requests
+use it too:
+
+| | |
+|---|---|
+| Allowed | Bluray-1080p, WEB-DL 1080p and WEBRip 1080p (TV also HDTV-1080p) |
+| Not allowed | Remuxes, anything 4K (2160p), 720p or lower |
+| Upgrades | On, until it has Bluray-1080p |
+
+File sizes are limited **per hour of runtime**, so a 2-hour movie may be twice
+these:
+
+| | Minimum | Preferred | Maximum |
+|---|---|---|---|
+| WEB 1080p | 1 GB | 3 GB | 5 GB |
+| Bluray-1080p | 2 GB | 4 GB | 7 GB |
+
+A 2-hour Blu-ray release is therefore 4–14 GB, and a 40 GB remux is never picked.
+(Radarr and Sonarr store these as MiB per minute; the bootstrap converts them.)
+
+**Upgrading a movie.** When a better release turns up (say the Blu-ray after a
+web release), Radarr upgrades on its own until it has Bluray-1080p. Movies still
+waiting for one are listed under **Wanted → Cutoff Unmet**, not under
+**Missing**, which only lists movies with no file at all. To pick a release
+yourself, open the movie → **Interactive Search** → choose one; it replaces the
+old file (which stays in the 7-day recycle bin).
+
+**Why 4K is off.** A 4K file small enough to be practical often looks worse than
+a good 1080p release, while a full-quality one is 20–60 GB or more. 4K releases
+are also nearly always HEVC, often with HDR, which many TVs, streaming sticks and
+servers can't play or convert smoothly.
+
+**One movie in 4K.** In Radarr open the movie → **Edit** → set **Quality
+Profile** to **Ultra-HD** → **Save**, then **Search**. That profile's sizes
+aren't limited by the bootstrap and it accepts 4K remuxes, so expect large files.
+In Sonarr the same works per series.
+
+**x265/HEVC and older devices.** Many 1080p releases are x265 (HEVC). Older
+Rokus and similar devices can't play HEVC directly, so Plex converts it while you
+watch, and on a slow CPU that stutters. x264 releases play directly almost
+everywhere.
 
 ---
 
