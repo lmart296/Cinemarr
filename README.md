@@ -240,6 +240,42 @@ data/
 Keep downloads and media on the **same drive** (both under `DATA_DIR`). Imports
 are then instant hardlinks instead of slow copies.
 
+### Media on its own drive (Linux)
+
+**Use ext4, not NTFS or exFAT.** A drive formatted on Windows works, but on
+Linux it's fragile: after an unclean shutdown an NTFS drive gets marked "dirty"
+and Linux refuses to mount it, and the kernel's NTFS driver can fail on large
+writes ("failed to extend initialized size"), freezing qBittorrent. ext4 has
+neither problem, and it supports the hardlinks that make imports instant.
+
+**Refuse to start without the drive.** If the drive isn't mounted, `DATA_DIR`
+is just an empty folder, and the apps would start against it as if your library
+were gone. To prevent that, create a marker file on the mounted drive and turn
+on the check in `.env`:
+
+```bash
+sudo touch /mnt/media/.cinemarr-data      # your DATA_DIR, with the drive mounted
+# then in .env:  REQUIRE_DATA_MARKER=true
+```
+
+`docker compose up -d` (and `./setup.sh`) now stop with `init: refusing to run:
+/data/.cinemarr-data is missing` when the drive isn't there.
+
+That check runs when you start the stack. After a **reboot**, though, Docker
+restarts the containers by itself, without the check. To cover that too, make
+Docker wait for the drive (replace the path with yours):
+
+```bash
+sudo systemctl edit docker
+# add these two lines in the editor, then save:
+#   [Unit]
+#   RequiresMountsFor=/mnt/media
+```
+
+Docker then only starts once the drive is mounted. The trade-off: if the drive
+can't be mounted, Docker doesn't start at all, including any other containers
+you run.
+
 ---
 
 ## Security model
@@ -404,10 +440,29 @@ temporarily bans the address. Run `docker compose restart qbittorrent` and try a
 **Radarr says the download folder doesn't exist.** Run `docker compose up -d`
 again; the `init` step recreates missing folders.
 
-**`init: refusing to run`.** `CONFIG_DIR` or `DATA_DIR` in `.env` points at a
-folder that looks like a system or home folder (it contains `etc`, `bin`, `usr`
-or `.ssh`), or one of the stack's folders is a symlink. The setup hands those
-folders to `PUID`, so point them at folders used only by this stack.
+**`init: refusing to run: /data/.cinemarr-data is missing`.** The media drive
+isn't mounted (or the marker was never created on it); see
+[Media on its own drive](#media-on-its-own-drive-linux). Check with
+`findmnt /mnt/media` (your `DATA_DIR`), mount it, then `docker compose up -d`.
+
+**`init: refusing to run` (anything else).** `CONFIG_DIR` or `DATA_DIR` in
+`.env` points at a folder that looks like a system or home folder (it contains
+`etc`, `bin`, `usr` or `.ssh`), or one of the stack's folders is a symlink. The
+setup hands those folders to `PUID`, so point them at folders used only by this
+stack.
+
+**An NTFS drive won't mount: "volume is dirty".** This happens after an unclean
+shutdown. The proper repair is `chkdsk /f` on a Windows PC. On Linux,
+`sudo ntfsfix -d /dev/sdX1` (your partition; the drive must not be mounted)
+clears the flag if the volume can be fixed, but it's
+[not a full chkdsk](https://manpages.ubuntu.com/manpages/noble/man8/ntfsfix.8.html).
+Moving the media to ext4 avoids this for good.
+
+**qBittorrent froze, or the logs say "failed to extend initialized size".**
+`docker compose ps` shows qBittorrent as `unhealthy` when its web page stops
+answering. Run `docker compose restart qbittorrent`. That message comes from the
+kernel's NTFS driver failing a large write; it can come back on NTFS, so move
+`DATA_DIR` to an ext4 drive.
 
 **A file you copied in doesn't show up in Plex, or won't play.** Plex can only
 see files it's allowed to read, and files from cameras, phones or AirDrop are

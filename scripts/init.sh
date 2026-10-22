@@ -3,6 +3,17 @@
 # Creates the folder layout and gives it to PUID:PGID. Safe to re-run.
 set -eu
 
+# Optional: refuse to start on an empty mountpoint. If the media drive isn't
+# mounted (say, it was marked dirty after an unclean shutdown), DATA_DIR is just
+# an empty folder, and every app would start against it. All services wait for
+# this script, so failing here stops the whole stack.
+if [ "${REQUIRE_DATA_MARKER:-false}" = true ] && [ ! -e /data/.cinemarr-data ]; then
+  echo "init: refusing to run: /data/.cinemarr-data is missing." >&2
+  echo "init: DATA_DIR's drive is probably not mounted. Mount it (or create the" >&2
+  echo "init: marker on the real drive) and run 'docker compose up -d' again." >&2
+  exit 1
+fi
+
 # Refuse folders that look like a system or home folder: everything under
 # CONFIG_DIR is handed to PUID, so a typo there must not take over the system.
 for root in /cfg /data; do

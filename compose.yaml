@@ -52,6 +52,7 @@ services:
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      REQUIRE_DATA_MARKER: ${REQUIRE_DATA_MARKER:-false}
     volumes:
       - ./scripts/init.sh:/init.sh:ro
       - ${CONFIG_DIR:-./config}:/cfg
@@ -110,6 +111,14 @@ services:
     ports:
       - ${BIND_IP:-127.0.0.1}:8080:8080
     # No peer port is published: no inbound connections from the swarm.
+    # A frozen qBittorrent (e.g. stuck on a failing disk write) stops answering
+    # its web UI; this shows it as "unhealthy" in 'docker compose ps'.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--max-time", "10", "http://localhost:8080/"]
+      start_period: 1m
+      interval: 1m
+      timeout: 15s
+      retries: 3
 
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
