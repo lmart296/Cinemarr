@@ -183,6 +183,14 @@ Profile** to **Ultra-HD** → **Save**, then **Search**. That profile's sizes
 aren't limited by the bootstrap and it accepts 4K remuxes, so expect large files.
 In Sonarr the same works per series.
 
+**Big TV shows can fill a drive.** The size limits apply per hour of runtime,
+not per show. A long-running show with 300+ episodes stays within every limit
+and still takes hundreds of GB (300 × 45 minutes at 3 GB per hour is about
+675 GB). And adding a show to your Plex Watchlist requests **every season**.
+For long shows, request them in Seerr instead and pick only the seasons you
+want, or open the series in Sonarr and unmonitor the seasons you don't want
+before it searches.
+
 **x265/HEVC and older devices.** Many 1080p releases are x265 (HEVC). Older
 Rokus and similar devices can't play HEVC directly, so Plex converts it while you
 watch, and on a slow CPU that stutters. x264 releases play directly almost
@@ -644,6 +652,29 @@ when it sees a file change, with no scheduled scans, so the media drive can
 sleep. If a change was missed (for example after the drive was remounted), use
 **Scan Library Files** on that library in Plex.
 
+**The drive is filling up.** Find out where the space went (replace
+`/srv/media` with your `DATA_DIR`):
+
+```bash
+df -h /srv/media                                         # how full the drive is
+sudo du -h --max-depth=2 /srv/media | sort -h | tail -20 # biggest folders
+```
+
+- If `du /srv/media/torrents/*` says "No such file or directory" even though
+  the folder isn't empty, your user can't read it, so the shell can't expand
+  the `*`. Let root expand it: `sudo sh -c 'du -sh /srv/media/torrents/*'`.
+- A drive that came from Windows may hold a hidden `$RECYCLE.BIN` with old
+  deleted files: `sudo du -sh '/srv/media/$RECYCLE.BIN'` (keep the single
+  quotes). If you don't need them, `sudo rm -rf '/srv/media/$RECYCLE.BIN'`.
+- Very large files are usually remuxes from before the size limits:
+  `sudo find /srv/media -type f -size +30G -printf '%s\t%p\n' | sort -n`.
+  To replace one, open it in Radarr → **Interactive Search** and pick a
+  smaller 1080p release. The old file goes to `recycle/` for 7 days; delete it
+  there to get the space back sooner.
+- If `df` shows the drive full but `du` can't find the space, a program still
+  has deleted files open: `sudo lsof +L1` lists them. Restart that container
+  (often `docker compose restart qbittorrent`) and the space comes back.
+
 **Library Import shows empty matches.** Reload the page and scroll slowly; Radarr
 matches in batches. Unmatched rows can be fixed by searching in the Movie column.
 
@@ -680,6 +711,21 @@ private networks.
 Docker Desktop on **Linux** behaves like macOS (relay setup, no host
 networking); `setup.sh` detects it and picks the right files.
 
+### Outside the US
+
+- **Plex itself:** Plex is a US company. In countries under US sanctions, Plex
+  sign-in and services may not work at all, and some Plex features (its free
+  movies, Live TV) are unavailable in more countries, such as Iran, Syria, Cuba,
+  North Korea and the UAE.
+- **Blocked services:** some countries or networks block Docker Hub or GitHub's
+  image registry (so the apps can't download), the movie databases the apps use
+  for titles and posters (TMDB and others), or torrent sites at the ISP level.
+  Symptoms are `docker compose pull` failing, missing posters, or indexers that
+  never answer.
+- **No port forwarding (CGNAT):** many ISPs, especially outside the US, share
+  one public address between customers, so you can't forward a port and Plex
+  remote access won't connect directly. Everything at home works normally.
+
 ---
 
 ## A note on legality
@@ -689,6 +735,13 @@ Downloading copyrighted movies and shows you don't have the rights to is copyrig
 infringement in most countries, whether or not you seed, and BitTorrent shares
 pieces with other peers while downloading. Public-domain and openly licensed
 works are fine. You're responsible for what you point it at.
+
+Enforcement and penalties vary a lot by country. In Germany, rights holders'
+law firms routinely send settlement letters (*Abmahnungen*) demanding hundreds
+of euros or more per title. In Japan, knowingly downloading pirated video or
+music has been a crime since 2012, punishable by up to two years in prison or a
+¥2 million fine. VPNs, including the optional one here, are restricted or
+illegal in some countries. Check the law where you live.
 
 ## License
 
