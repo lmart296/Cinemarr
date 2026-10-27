@@ -1,0 +1,42 @@
+# Use a Plex that's already installed on this computer (e.g. the Ubuntu
+# plexmediaserver package) instead of the Plex container.
+#
+# Enable it in .env (Linux):
+#   COMPOSE_FILE=compose.yaml:compose.linux.yaml:compose.external-plex.yaml
+# and set DATA_DIR to an absolute path. See README, "Using a Plex you already
+# run on the host".
+
+services:
+  # Never started: Plex runs on the host.
+  plex:
+    profiles: ["disabled"]
+  plex-lan:
+    profiles: ["disabled"]
+
+  # Radarr, Sonarr and Seerr reach the host's Plex through the host gateway.
+  radarr:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  sonarr:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  seerr:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  bootstrap:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      PLEX_HOST: host.docker.internal
+      PLEX_VIA_RELAY: "false"
+      # Plex's settings file (for its sign-in token), read-only.
+      PLEX_PREFS: /plex/Preferences.xml
+      PLEX_PREFS_DIR: ${PLEX_PREFS_DIR:-/var/lib/plexmediaserver/Library/Application Support/Plex Media Server}
+      # Where the host's Plex sees DATA_DIR: the same path, unless set.
+      PLEX_LIBRARY_ROOT: ${PLEX_DATA_DIR:-${DATA_DIR:-./data}}
+    volumes:
+      - type: bind
+        source: ${PLEX_PREFS_DIR:-/var/lib/plexmediaserver/Library/Application Support/Plex Media Server}/Preferences.xml
+        target: /plex/Preferences.xml
+        read_only: true
+        # Fail instead of creating a folder named Preferences.xml in Plex's
+        # data directory when the path is wrong.
+        bind:
+          create_host_path: false

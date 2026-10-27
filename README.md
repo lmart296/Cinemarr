@@ -111,7 +111,7 @@ you fill it in, overrides that.) This is the only step left by hand.
 Add a public-domain film (for example *Night of the Living Dead*, 1968) to your
 Plex Watchlist. Within a few minutes it should appear in Seerr → Radarr →
 qBittorrent, stop at 100%, disappear from qBittorrent, and show up in Plex
-(usually seconds after the import; at most 15 minutes).
+(usually seconds after the import).
 
 ### Setting it up by hand
 
@@ -137,10 +137,93 @@ What `setup.sh` does, if you'd rather do it yourself:
 | App | Settings |
 |---|---|
 | qBittorrent | Its own password (different from the other apps'); save path; **stop seeding at 100%**; UPnP off; skips programs, scripts, installers and archives inside torrents (`.exe`, `.scr`, `.lnk`, `.msi`, `.dmg`, `.pkg`, `.sh`, `.zip`, `.rar` and similar) |
-| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin. They get no Plex token |
+| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin; subtitle files (`.srt`) imported along with the video; the **HD-1080p** profile and 1080p file sizes (see [Download quality](#download-quality)). They get no Plex token |
 | Prowlarr | Login required; pushes indexers to Radarr and Sonarr; every indexer needs **10+ seeders** |
-| Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically |
-| Plex | Scans for new files itself (as soon as a change is detected, and every 15 minutes); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
+| Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (HD-1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically; **nobody else can auto-request** (see [Who can request](#who-can-request)) |
+| Plex | Scans for new files itself as soon as they change (no scheduled scans, so the media drive can sleep); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
+
+---
+
+## Download quality
+
+Radarr and Sonarr both use a profile called **HD-1080p**, and Seerr requests
+use it too:
+
+| | |
+|---|---|
+| Allowed | Bluray-1080p, WEB-DL 1080p and WEBRip 1080p (TV also HDTV-1080p) |
+| Not allowed | Remuxes, anything 4K (2160p), 720p or lower |
+| Upgrades | On, until it has Bluray-1080p |
+
+File sizes are limited **per hour of runtime**, so a 2-hour movie may be twice
+these:
+
+| | Minimum | Preferred | Maximum |
+|---|---|---|---|
+| WEB 1080p | 1 GB | 3 GB | 5 GB |
+| Bluray-1080p | 2 GB | 4 GB | 7 GB |
+
+A 2-hour Blu-ray release is therefore 4–14 GB, and a 40 GB remux is never picked.
+(Radarr and Sonarr store these as MiB per minute; the bootstrap converts them.)
+
+**Upgrading a movie.** When a better release turns up (say the Blu-ray after a
+web release), Radarr upgrades on its own until it has Bluray-1080p. Movies still
+waiting for one are listed under **Wanted → Cutoff Unmet**, not under
+**Missing**, which only lists movies with no file at all. To pick a release
+yourself, open the movie → **Interactive Search** → choose one; it replaces the
+old file (which stays in the 7-day recycle bin).
+
+**Why 4K is off.** A 4K file small enough to be practical often looks worse than
+a good 1080p release, while a full-quality one is 20–60 GB or more. 4K releases
+are also nearly always HEVC, often with HDR, which many TVs, streaming sticks and
+servers can't play or convert smoothly.
+
+**One movie in 4K.** In Radarr open the movie → **Edit** → set **Quality
+Profile** to **Ultra-HD** → **Save**, then **Search**. That profile's sizes
+aren't limited by the bootstrap and it accepts 4K remuxes, so expect large files.
+In Sonarr the same works per series.
+
+**Big TV shows can fill a drive.** The size limits apply per hour of runtime,
+not per show. A long-running show with 300+ episodes stays within every limit
+and still takes hundreds of GB (300 × 45 minutes at 3 GB per hour is about
+675 GB). And adding a show to your Plex Watchlist requests **every season**.
+For long shows, request them in Seerr instead and pick only the seasons you
+want, or open the series in Sonarr and unmonitor the seasons you don't want
+before it searches.
+
+**x265/HEVC and older devices.** Many 1080p releases are x265 (HEVC). Older
+Rokus and similar devices can't play HEVC directly, so Plex converts it while you
+watch, and on a slow CPU that stutters. x264 releases play directly almost
+everywhere.
+
+---
+
+## Who can request
+
+**Signing in to Seerr** uses your **Plex account**, not the passwords the
+bootstrap asked for. Those only open Radarr, Sonarr and Prowlarr (one password)
+and qBittorrent (the other).
+
+**Auto-requests come from your Watchlist only.** Seerr can turn the Plex
+Watchlist of *every* Plex user it knows about into requests, for example friends
+you share your server with who sign in to Seerr. That needs Seerr's
+**Auto-Request** permission, so the bootstrap keeps it to you:
+
+- **Settings → Users → Default Permissions** never includes Auto-Request, so new
+  users can request by hand (and you approve) but their Watchlists do nothing.
+- Each run, Auto-Request is removed from every other user, and any other
+  **admin** gets a warning: admins pass every permission check, so their
+  Watchlist would still request.
+
+**A movie you don't remember adding?** Open **Requests** in Seerr: each request
+shows who it was **requested by**. If it says you, something signed in as you
+added it to your Plex Watchlist: a shared TV, a friend's phone, an old device.
+
+- Turn on **two-factor authentication** for your Plex account
+  ([app.plex.tv](https://app.plex.tv) → Account settings → Security).
+- Check [app.plex.tv](https://app.plex.tv) → Settings → **Authorized Devices**
+  and remove anything you don't recognise. Changing your Plex password with
+  "sign out connected devices" removes them all at once.
 
 ---
 
@@ -155,15 +238,111 @@ data/
   media/tv/         your TV library         ← Plex reads this (read-only)
   torrents/         downloads in progress   ← only qBittorrent writes here
   recycle/          replaced files, kept 7 days
+  incoming/         movies you copy in yourself (see below)
 ```
 
-**Bringing an existing library:** move it into `data/media/movies` and
-`data/media/tv`, or set `DATA_DIR` to a folder on your media drive that contains
-`media/movies` and `media/tv`. Then in Radarr/Sonarr use **Library Import** with
+The two library folders can be anywhere inside `DATA_DIR`: set `MOVIES_DIR` and
+`TV_DIR` in `.env` (relative to `DATA_DIR`, e.g. `Videos/Movies` and
+`Videos/TV Shows`). Everything (Radarr, Sonarr, Plex, Seerr) follows them.
+
+The `init` step never changes files in your library. It only makes sure the
+stack's user owns the library **folders** themselves (and the folders above
+them), adding read/write for that user and its group, never for anyone else.
+
+**Bringing a whole existing library:** point `DATA_DIR` at its drive and
+`MOVIES_DIR`/`TV_DIR` at its folders (or move it into `data/media/movies` and
+`data/media/tv`). Then in Radarr/Sonarr use **Library Import** with
 **Monitor: None** so they don't re-download what you have.
+
+### Adding movies you already have
+
+For a few files (a disc you ripped, a friend's copy), there's a drop folder:
+`incoming/` inside `DATA_DIR` (`data/incoming` with the defaults). Radarr and
+Sonarr can see it; Plex and qBittorrent can't. It's group-writable and setgid,
+so anything copied in belongs to the stack's group, and closed to other users
+on the server. To copy into it over the
+network, your login on the server must be the stack's user (`PUID`) or in its
+group (`PGID`): `sudo usermod -aG <that group> <you>`, then log in again.
+
+**1. Copy the files in**, one folder per movie, from another computer:
+
+```bash
+# macOS / Linux
+scp -r "Movie Title (2001)" you@server:/srv/media/incoming/
+scp -i ~/.ssh/id_ed25519 -r "Movie Title (2001)" you@server:/srv/media/incoming/
+```
+
+```powershell
+# Windows PowerShell (scp is built into Windows 10 and 11)
+scp -r "C:\Users\you\Videos\Movie Title (2001)" you@server:/srv/media/incoming/
+scp -i "$env:USERPROFILE\.ssh\id_ed25519" -r "C:\Users\you\Videos\Movie Title (2001)" you@server:/srv/media/incoming/
+```
+
+(Replace `/srv/media` with your `DATA_DIR`.)
+
+**2. Add the movie to Radarr first.** Radarr's **Manual Import** only matches
+files to movies Radarr already knows. For each one: **Movies → Add New**,
+search for it, **untick** "Start search for missing movie", and add it.
+
+**3. Import it.** Open the movie in Radarr → **Manual Import** → choose
+`/data/incoming` → check the match → set the import mode to **Move** →
+**Import**. Radarr renames it and moves it into the library, and Plex picks it
+up within seconds.
+
+Alternatively, put each movie in its own folder straight inside the library
+folder and use **Movies → Library Import**, which adds and matches them in one
+go (the files stay where they are, unrenamed).
+
+**4. Clean up the leftovers** (`.nfo`, `.jpg`, `.txt` and empty folders that
+came with the movie). Check what would go first, then delete:
+
+```bash
+find /srv/media/incoming -type f \( -iname '*.nfo' -o -iname '*.jpg' -o -iname '*.txt' \) -print
+find /srv/media/incoming -type f \( -iname '*.nfo' -o -iname '*.jpg' -o -iname '*.txt' \) -delete
+find /srv/media/incoming -mindepth 1 -type d -empty -delete
+```
+
+For TV, the same works in Sonarr (add the series first, then **Manual Import**
+from its page).
 
 Keep downloads and media on the **same drive** (both under `DATA_DIR`). Imports
 are then instant hardlinks instead of slow copies.
+
+### Media on its own drive (Linux)
+
+**Use ext4, not NTFS or exFAT.** A drive formatted on Windows works, but on
+Linux it's fragile: after an unclean shutdown an NTFS drive gets marked "dirty"
+and Linux refuses to mount it, and the kernel's NTFS driver can fail on large
+writes ("failed to extend initialized size"), freezing qBittorrent. ext4 has
+neither problem, and it supports the hardlinks that make imports instant.
+
+**Refuse to start without the drive.** If the drive isn't mounted, `DATA_DIR`
+is just an empty folder, and the apps would start against it as if your library
+were gone. To prevent that, create a marker file on the mounted drive and turn
+on the check in `.env`:
+
+```bash
+sudo touch /mnt/media/.cinemarr-data      # your DATA_DIR, with the drive mounted
+# then in .env:  REQUIRE_DATA_MARKER=true
+```
+
+`docker compose up -d` (and `./setup.sh`) now stop with `init: refusing to run:
+/data/.cinemarr-data is missing` when the drive isn't there.
+
+That check runs when you start the stack. After a **reboot**, though, Docker
+restarts the containers by itself, without the check. To cover that too, make
+Docker wait for the drive (replace the path with yours):
+
+```bash
+sudo systemctl edit docker
+# add these two lines in the editor, then save:
+#   [Unit]
+#   RequiresMountsFor=/mnt/media
+```
+
+Docker then only starts once the drive is mounted. The trade-off: if the drive
+can't be mounted, Docker doesn't start at all, including any other containers
+you run.
 
 ---
 
@@ -185,7 +364,7 @@ could reach.**
 
 **Keys to your Plex account.** Radarr and Sonarr never get your Plex sign-in
 token: instead of them telling Plex to scan after each import, Plex watches the
-library itself, so a new movie can take up to 15 minutes to appear. Seerr does
+library itself and picks up new files within seconds. Seerr does
 hold your Plex sign-in (the bootstrap gives it the server's, which Seerr needs to
 read your Watchlist), so treat `config/seerr` as private. Turn on
 two-factor authentication for your Plex account.
@@ -211,6 +390,11 @@ widen the Plex rule to `sudo ufw allow 32400/tcp`.
 
 Also: use SSH keys and set `PasswordAuthentication no` in `/etc/ssh/sshd_config`,
 and turn on two-factor authentication for your Plex account.
+
+**Saving power (optional):** [docs/linux-power.md](docs/linux-power.md) covers
+spinning the media drive down, powertop, headless-by-default with a desktop on
+demand, and how to check what keeps the drive awake. It's all host-level; none
+of it is in the compose files.
 
 ---
 
@@ -276,6 +460,120 @@ by **Servers**, and remove it. Your TVs and phones then stop listing it.
 
 ---
 
+## Optional: use a Plex you already run on the host (Linux)
+
+If Plex is already installed on the server as a normal package (for example
+Ubuntu's `plexmediaserver`), the stack can use it instead of its own Plex
+container.
+
+**1. Turn it on in `.env`:**
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.linux.yaml:compose.external-plex.yaml
+DATA_DIR=/srv/media                   # must be an absolute path here
+MOVIES_DIR=Videos/Movies              # wherever your libraries already are
+TV_DIR=Videos/TV Shows
+# Only if Plex's data isn't in the Ubuntu package's usual place:
+#PLEX_PREFS_DIR=/var/lib/plexmediaserver/Library/Application Support/Plex Media Server
+# Only if Plex sees the drive at a different path than DATA_DIR:
+#PLEX_DATA_DIR=/srv/media
+```
+
+then `docker compose up -d --remove-orphans` (which also removes an old Plex
+container) and `docker compose run --rm bootstrap`.
+
+**What changes:**
+
+- No Plex container (and no `plex-lan` relay). Radarr, Sonarr and Seerr reach
+  your Plex at `host.docker.internal:32400`, which is the host itself.
+- Plex doesn't need to reach the stack at all: it notices new files in the
+  library folders on its own.
+- `setup.sh` skips the Plex sign-in; sign in to your Plex as you normally do.
+- The bootstrap still configures your Plex: libraries (it keeps the ones you
+  have), scanning on change only, DLNA off, secure connections preferred, and
+  **remote access off** unless `PLEX_REMOTE_ACCESS=true` in `.env`. Set that
+  first if you stream away from home.
+- To read Plex's sign-in token, the bootstrap mounts Plex's `Preferences.xml`
+  read-only. A native Plex usually keeps that file private, so the bootstrap
+  then asks you to paste the token (and shows the `sudo grep` command that
+  prints it). It's used for that run only, never saved.
+
+**Firewall (ufw).** Traffic from the containers to the host's Plex is ordinary
+incoming traffic for ufw, so allow it alongside your home network:
+
+```bash
+sudo ufw allow from 192.168.1.0/24 to any port 32400 proto tcp   # your devices
+sudo ufw allow from 172.16.0.0/12 to any port 32400 proto tcp    # the containers
+```
+
+(The web UIs are different: Docker publishes their ports past ufw entirely,
+which is why they're bound to `BIND_IP` instead.)
+
+**Plex must be able to read the downloads.** The apps run as `PUID`:`PGID`;
+Plex runs as its own `plex` user. Imports are hardlinks, so the library file is
+the same file qBittorrent wrote, with its owner and permissions. The apps
+create files readable by everyone (`644`), so Plex can read them. If your
+library is locked down to a group (folders `750`, files `640`), give Plex that
+group and make new folders inherit it:
+
+```bash
+sudo usermod -aG <PGID's group> plex          # e.g. media
+sudo find /srv/media/Videos -type d -exec chmod g+s {} +
+sudo systemctl restart plexmediaserver
+```
+
+### Optional: hardening the native Plex
+
+This is an example of sandboxing the Plex package with systemd, not something
+the stack needs. Adapt the paths, then check Plex still starts and plays
+(`journalctl -u plexmediaserver -f`).
+
+`sudo systemctl edit plexmediaserver`, then add:
+
+```ini
+[Unit]
+# Wait for the media drive instead of failing in a loop without it.
+RequiresMountsFor=/srv/media
+
+[Service]
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/plexmediaserver
+ProtectHome=yes
+# Hide everything under /srv, then show only the library, read-only
+# (not the downloads or incoming folders).
+TemporaryFileSystem=/srv:ro
+BindReadOnlyPaths=/srv/media/Videos
+```
+
+Check the result with `systemd-analyze security plexmediaserver`: the exposure
+score should drop well below the unhardened one.
+
+To stop a compromised Plex from reaching other devices at home, ufw can block
+**new** connections from the `plex` user into your network, while still
+allowing DNS to your router, broadcasts, and Plex's discovery (GDM). Replies to
+your TVs and phones are unaffected. Add before the final `COMMIT` in
+`/etc/ufw/before.rules` (adjust the addresses), then `sudo ufw reload`:
+
+```
+# Plex may not open new connections into the LAN (except DNS, broadcast, GDM)
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.1 -p udp --dport 53 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.1 -p tcp --dport 53 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.255 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -p udp --dport 32410:32414 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.0/24 -m conntrack --ctstate NEW -j REJECT
+```
+
+This also stops Plex from reaching anything else on your network you might
+want it to, such as a NAS or a DLNA renderer.
+
+**Already running these apps from your own compose file?**
+[docs/migrate-existing-server.md](docs/migrate-existing-server.md) walks
+through moving such a server onto this repo, keeping every app's settings and
+the library where it is, with a rollback.
+
+---
+
 ## Optional: VPN for downloads
 
 1. Pick a WireGuard VPN provider that
@@ -329,10 +627,29 @@ temporarily bans the address. Run `docker compose restart qbittorrent` and try a
 **Radarr says the download folder doesn't exist.** Run `docker compose up -d`
 again; the `init` step recreates missing folders.
 
-**`init: refusing to run`.** `CONFIG_DIR` or `DATA_DIR` in `.env` points at a
-folder that looks like a system or home folder (it contains `etc`, `bin`, `usr`
-or `.ssh`), or one of the stack's folders is a symlink. The setup hands those
-folders to `PUID`, so point them at folders used only by this stack.
+**`init: refusing to run: /data/.cinemarr-data is missing`.** The media drive
+isn't mounted (or the marker was never created on it); see
+[Media on its own drive](#media-on-its-own-drive-linux). Check with
+`findmnt /mnt/media` (your `DATA_DIR`), mount it, then `docker compose up -d`.
+
+**`init: refusing to run` (anything else).** `CONFIG_DIR` or `DATA_DIR` in
+`.env` points at a folder that looks like a system or home folder (it contains
+`etc`, `bin`, `usr` or `.ssh`), or one of the stack's folders is a symlink. The
+setup hands those folders to `PUID`, so point them at folders used only by this
+stack.
+
+**An NTFS drive won't mount: "volume is dirty".** This happens after an unclean
+shutdown. The proper repair is `chkdsk /f` on a Windows PC. On Linux,
+`sudo ntfsfix -d /dev/sdX1` (your partition; the drive must not be mounted)
+clears the flag if the volume can be fixed, but it's
+[not a full chkdsk](https://manpages.ubuntu.com/manpages/noble/man8/ntfsfix.8.html).
+Moving the media to ext4 avoids this for good.
+
+**qBittorrent froze, or the logs say "failed to extend initialized size".**
+`docker compose ps` shows qBittorrent as `unhealthy` when its web page stops
+answering. Run `docker compose restart qbittorrent`. That message comes from the
+kernel's NTFS driver failing a large write; it can come back on NTFS, so move
+`DATA_DIR` to an ext4 drive.
 
 **A file you copied in doesn't show up in Plex, or won't play.** Plex can only
 see files it's allowed to read, and files from cameras, phones or AirDrop are
@@ -340,6 +657,34 @@ often private to your user. From the project folder, run:
 `chmod -R a+rX data/media` (macOS/Linux), then in Plex use **Scan Library Files**.
 On Linux you can instead give the files to `PUID`:
 `sudo chown -R $(id -u):$(id -g) data/media`.
+
+**A new download is in the library folder but not in Plex.** Plex only scans
+when it sees a file change, with no scheduled scans, so the media drive can
+sleep. If a change was missed (for example after the drive was remounted), use
+**Scan Library Files** on that library in Plex.
+
+**The drive is filling up.** Find out where the space went (replace
+`/srv/media` with your `DATA_DIR`):
+
+```bash
+df -h /srv/media                                         # how full the drive is
+sudo du -h --max-depth=2 /srv/media | sort -h | tail -20 # biggest folders
+```
+
+- If `du /srv/media/torrents/*` says "No such file or directory" even though
+  the folder isn't empty, your user can't read it, so the shell can't expand
+  the `*`. Let root expand it: `sudo sh -c 'du -sh /srv/media/torrents/*'`.
+- A drive that came from Windows may hold a hidden `$RECYCLE.BIN` with old
+  deleted files: `sudo du -sh '/srv/media/$RECYCLE.BIN'` (keep the single
+  quotes). If you don't need them, `sudo rm -rf '/srv/media/$RECYCLE.BIN'`.
+- Very large files are usually remuxes from before the size limits:
+  `sudo find /srv/media -type f -size +30G -printf '%s\t%p\n' | sort -n`.
+  To replace one, open it in Radarr → **Interactive Search** and pick a
+  smaller 1080p release. The old file goes to `recycle/` for 7 days; delete it
+  there to get the space back sooner.
+- If `df` shows the drive full but `du` can't find the space, a program still
+  has deleted files open: `sudo lsof +L1` lists them. Restart that container
+  (often `docker compose restart qbittorrent`) and the space comes back.
 
 **Library Import shows empty matches.** Reload the page and scroll slowly; Radarr
 matches in batches. Unmatched rows can be fixed by searching in the Movie column.
@@ -368,13 +713,29 @@ port-forwarded.
 
 On Windows, keep the project and `DATA_DIR` inside Ubuntu (your Linux home
 folder). A folder on a Windows drive (`/mnt/c`, `/mnt/d`) works but is slower,
-imports become copies, and Plex only notices new files on its 15-minute scan.
+imports become copies, and Plex may not notice new files on its own (use **Scan
+Library Files** in Plex when that happens).
 Untested so far: whether Windows Firewall lets other devices reach Plex without
 a prompt. If TVs can't connect, allow Docker Desktop through the firewall for
 private networks.
 
 Docker Desktop on **Linux** behaves like macOS (relay setup, no host
 networking); `setup.sh` detects it and picks the right files.
+
+### Outside the US
+
+- **Plex itself:** Plex is a US company. In countries under US sanctions, Plex
+  sign-in and services may not work at all, and some Plex features (its free
+  movies, Live TV) are unavailable in more countries, such as Iran, Syria, Cuba,
+  North Korea and the UAE.
+- **Blocked services:** some countries or networks block Docker Hub or GitHub's
+  image registry (so the apps can't download), the movie databases the apps use
+  for titles and posters (TMDB and others), or torrent sites at the ISP level.
+  Symptoms are `docker compose pull` failing, missing posters, or indexers that
+  never answer.
+- **No port forwarding (CGNAT):** many ISPs, especially outside the US, share
+  one public address between customers, so you can't forward a port and Plex
+  remote access won't connect directly. Everything at home works normally.
 
 ---
 
@@ -385,6 +746,13 @@ Downloading copyrighted movies and shows you don't have the rights to is copyrig
 infringement in most countries, whether or not you seed, and BitTorrent shares
 pieces with other peers while downloading. Public-domain and openly licensed
 works are fine. You're responsible for what you point it at.
+
+Enforcement and penalties vary a lot by country. In Germany, rights holders'
+law firms routinely send settlement letters (*Abmahnungen*) demanding hundreds
+of euros or more per title. In Japan, knowingly downloading pirated video or
+music has been a crime since 2012, punishable by up to two years in prison or a
+¥2 million fine. VPNs, including the optional one here, are restricted or
+illegal in some countries. Check the law where you live.
 
 ## License
 

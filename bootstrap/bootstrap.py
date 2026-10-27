@@ -9,14 +9,18 @@ Linux, macOS and Windows. Standard library only.
 Sets up:
   qBittorrent  its own password, save path, never-seed limits, UPnP off, blocked file types
   Radarr       login, root folder, qBittorrent client (remove on import),
-               renaming, recycle bin; no Plex token (any old Plex connection
-               is removed)
+               renaming, recycle bin, subtitles (.srt) imported with the video,
+               HD-1080p profile and 1080p file sizes;
+               no Plex token (any old Plex connection is removed)
   Sonarr       same as Radarr, for TV
+               (both: rescan folders only after a manual refresh, so the
+               media drive can sleep)
   Prowlarr     login, sync to Radarr + Sonarr, 10+ seeders for every indexer
   Seerr        your Plex account as its admin, Plex server and libraries,
-               Radarr + Sonarr, auto-request from your Plex Watchlist
+               Radarr + Sonarr (HD-1080p), auto-request from your Plex Watchlist
+               only (no other user can auto-request)
   Plex         Movies and TV Shows libraries,
-               scans for new files itself (on change + every 15 minutes),
+               scans for new files itself when they change (no scheduled scans),
                secure connections preferred, media deletion off, DLNA off,
                home address (SERVER_IP), LAN subnet (Linux), remote access
                off (unless PLEX_REMOTE_ACCESS=true, Linux only)
@@ -44,12 +48,40 @@ PLEX_REMOTE = os.environ.get("PLEX_REMOTE_ACCESS", "false").lower() in ("1", "tr
 # macOS/Windows: devices reach Plex through the plex-lan relay (see compose.yaml).
 PLEX_VIA_RELAY = os.environ.get("PLEX_VIA_RELAY", "false").lower() in ("1", "true", "yes")
 SERVER_IP = os.environ.get("SERVER_IP", "").strip()
-PLEX_PREFS = CFG / "plex/Library/Application Support/Plex Media Server/Preferences.xml"
+PLEX_PREFS = Path(os.environ.get(
+    "PLEX_PREFS", CFG / "plex/Library/Application Support/Plex Media Server/Preferences.xml"))
+# Library folders, relative to DATA_DIR (init.sh validates them).
+MOVIES_DIR = os.environ.get("MOVIES_DIR", "media/movies").strip("/")
+TV_DIR = os.environ.get("TV_DIR", "media/tv").strip("/")
+# As Radarr and Sonarr see them...
+MOVIES_ROOT = f"/data/{MOVIES_DIR}"
+TV_ROOT = f"/data/{TV_DIR}"
+# ...and as Plex sees DATA_DIR: /data in the container, the host path for a
+# Plex installed on the host (compose.external-plex.yaml).
+PLEX_LIBRARY_ROOT = os.environ.get("PLEX_LIBRARY_ROOT", "/data").rstrip("/")
 SEERR = "http://seerr:5055/api/v1"
 SEERR_SETTINGS = CFG / "seerr/settings.json"
+# Seerr permission bits (server/lib/permissions.ts).
+SEERR_ADMIN = 2
+SEERR_AUTO_REQUEST = 8388608 | 16777216 | 33554432  # AUTO_REQUEST, _MOVIE, _TV
 
 # Well-seeded releases download faster and are far less likely to be fake.
 MIN_SEEDERS = 10
+
+# Default quality: 1080p at sane sizes. No remuxes (a 40 GB 1080p remux once
+# got picked automatically), no 4K, nothing below 1080p.
+PROFILE = "HD-1080p"
+PROFILE_QUALITIES = {
+    "Radarr": {"Bluray-1080p", "WEBDL-1080p", "WEBRip-1080p"},
+    "Sonarr": {"Bluray-1080p", "WEBDL-1080p", "WEBRip-1080p", "HDTV-1080p"},
+}
+CUTOFF_QUALITY = "Bluray-1080p"  # upgrades stop here
+# (min, preferred, max) in GB per hour of runtime.
+SIZES_GB_PER_HOUR = {
+    "WEBDL-1080p": (1, 3, 5),
+    "WEBRip-1080p": (1, 3, 5),
+    "Bluray-1080p": (2, 4, 7),
+}
 
 BLOCKED_FILES = "\n".join(
     # Windows
@@ -219,6 +251,47 @@ def set_min_seeders(prowlarr):
         ok(f"Prowlarr: '{profile['name']}' profile needs {MIN_SEEDERS}+ seeders")
 
 
+def mib_per_minute(gb_per_hour):
+    """Radarr and Sonarr store sizes as MiB per minute of runtime."""
+    return round(gb_per_hour * 1024 / 60, 1)
+
+
+def ensure_quality_profile(app):
+    """Create or update the HD-1080p profile. Qualities come in groups (e.g.
+    "WEB 1080p"); a group is allowed if any of its qualities is."""
+    allowed = PROFILE_QUALITIES[app.name]
+    profile = next((p for p in app.get("/qualityprofile") if p["name"] == PROFILE), None)
+    base = profile or app.get("/qualityprofile/schema")
+    cutoff = None
+    for item in base["items"]:
+        members = item.get("items") or [item]
+        for member in members:
+            member["allowed"] = member["quality"]["name"] in allowed
+        if item.get("items"):
+            item["allowed"] = any(m["allowed"] for m in members)
+        if any(m["quality"]["name"] == CUTOFF_QUALITY for m in members):
+            cutoff = item["id"] if item.get("items") else item["quality"]["id"]
+    base.update(name=PROFILE, upgradeAllowed=True, cutoff=cutoff)
+    if profile:
+        app.put(f"/qualityprofile/{profile['id']}", base)
+    else:
+        base.pop("id", None)
+        app.post("/qualityprofile", base)
+    ok(f"{app.name}: '{PROFILE}' profile allows {', '.join(sorted(allowed))}; "
+       f"upgrades up to {CUTOFF_QUALITY}")
+
+
+def set_quality_sizes(app):
+    definitions = app.get("/qualitydefinition")
+    for d in definitions:
+        sizes = SIZES_GB_PER_HOUR.get(d["quality"]["name"])
+        if sizes:
+            d["minSize"], d["preferredSize"], d["maxSize"] = map(mib_per_minute, sizes)
+    app.put("/qualitydefinition/update", definitions)
+    ok(f"{app.name}: 1080p sizes per hour of runtime: WEB 1-5 GB (3 preferred), "
+       f"Bluray 2-7 GB (4 preferred)")
+
+
 # ---------------------------------------------------------------- qBittorrent
 def configure_qbittorrent(user, password, arr_password):
     base = "http://qbittorrent:8080/api/v2"
@@ -290,20 +363,38 @@ def configure_qbittorrent(user, password, arr_password):
 
 # ---------------------------------------------------------------- Plex
 def plex_token():
-    if not PLEX_PREFS.exists():
+    try:
+        prefs = PLEX_PREFS.read_text(errors="replace")
+    except FileNotFoundError:
         return None
-    m = re.search(r'PlexOnlineToken="([^"]+)"', PLEX_PREFS.read_text(errors="replace"))
+    except PermissionError:
+        # A Plex installed on the host usually keeps this file to itself.
+        # Ask for the token instead; it's used for this run only, never saved.
+        warn(f"Can't read Plex's settings file; Plex keeps it private to its own user.")
+        if not sys.stdin.isatty():
+            return None
+        host_file = os.path.join(os.environ.get("PLEX_PREFS_DIR", "<Plex data folder>"),
+                                 "Preferences.xml")
+        print("    On the server, show the token with:")
+        print(f"      sudo grep -o 'PlexOnlineToken=\"[^\"]*' '{host_file}' | cut -d'\"' -f2")
+        token = getpass.getpass("    Paste it here (Enter to skip Plex and Seerr): ").strip()
+        return token or None
+    m = re.search(r'PlexOnlineToken="([^"]+)"', prefs)
     return m.group(1) if m else None
 
 
 LIBRARIES = (
     # name, type, agent, scanner, folder (Plex's current defaults)
-    ("Movies", "movie", "tv.plex.agents.movie", "Plex Movie", "/data/media/movies"),
-    ("TV Shows", "show", "tv.plex.agents.series", "Plex TV Series", "/data/media/tv"),
+    ("Movies", "movie", "tv.plex.agents.movie", "Plex Movie", f"{PLEX_LIBRARY_ROOT}/{MOVIES_DIR}"),
+    ("TV Shows", "show", "tv.plex.agents.series", "Plex TV Series", f"{PLEX_LIBRARY_ROOT}/{TV_DIR}"),
 )
 
 
 def ensure_plex_libraries(base, token):
+    if not PLEX_LIBRARY_ROOT.startswith("/"):
+        warn(f"Plex libraries skipped: DATA_DIR must be an absolute path for a Plex "
+             f"installed on the host (got '{PLEX_LIBRARY_ROOT}')")
+        return
     headers = {"X-Plex-Token": token}
     sections = request("GET", f"{base}/library/sections", headers=headers)
     existing = sections["MediaContainer"].get("Directory", [])
@@ -338,12 +429,12 @@ def configure_plex(token):
         warn("PLEX_REMOTE_ACCESS is ignored on macOS/Windows; remote access stays off")
         remote = False
     prefs = {
-        # Plex finds new imports itself, so Radarr/Sonarr never need the
-        # Plex token: on file changes, plus a full scan every 15 minutes.
-        "FSEventLibraryUpdatesEnabled": 1,
-        "FSEventLibraryPartialScanEnabled": 1,
-        "ScheduledLibraryUpdatesEnabled": 1,
-        "ScheduledLibraryUpdateInterval": 900,
+        # Plex finds new imports itself when files change, so Radarr/Sonarr
+        # never need the Plex token. No scheduled scans: they wake the media
+        # drive for nothing.
+        "FSEventLibraryUpdatesEnabled": 1,       # "Scan my library automatically"
+        "FSEventLibraryPartialScanEnabled": 1,   # "Run a partial scan when changes are detected"
+        "ScheduledLibraryUpdatesEnabled": 0,     # "Scan my library periodically"
         "secureConnections": 1,              # 1 = Preferred
         "allowMediaDeletion": 0,
         "DlnaEnabled": 0,                    # DLNA has no login; keep it off
@@ -361,7 +452,7 @@ def configure_plex(token):
         step(f"Plex {key}", request, "PUT",
              f"{base}/:/prefs?{urllib.parse.urlencode({key: value})}",
              headers={"X-Plex-Token": token})
-    ok(f"Plex: scans on change + every 15 min, secure connections preferred, "
+    ok(f"Plex: scans on change (no scheduled scans), secure connections preferred, "
        f"deletion off, DLNA off, "
        f"remote access {'on' if remote else 'off'}"
        + (f", address http://{SERVER_IP}:32400" if SERVER_IP else ""))
@@ -371,9 +462,35 @@ def configure_plex(token):
 
 
 # ---------------------------------------------------------------- Seerr
-def pick_profile(profiles, preferred="HD-1080p"):
-    """Quality profile for requests: 1080p if the app has it, else the first."""
-    return next((p for p in profiles if p["name"] == preferred), profiles[0])
+def pick_profile(profiles, preferred=PROFILE):
+    """Quality profile for requests: the one named, else the app's first."""
+    found = next((p for p in profiles if p["name"] == preferred), None)
+    if not found:
+        warn(f"No quality profile named '{preferred}'; using '{profiles[0]['name']}'")
+    return found or profiles[0]
+
+
+def restrict_auto_requests(api):
+    """Only the owner's Plex Watchlist turns into requests. Seerr can
+    auto-request from the Watchlist of every Plex user it imports; that needs
+    an Auto-Request permission (being an admin counts too)."""
+    main = api("GET", "/settings/main")
+    default = main.get("defaultPermissions", 0)
+    if default & SEERR_AUTO_REQUEST:
+        api("POST", "/settings/main", {"defaultPermissions": default & ~SEERR_AUTO_REQUEST})
+    ok("Seerr: new users can't auto-request (Default Permissions)")
+    for user in api("GET", "/user?take=1000")["results"]:
+        if user["id"] == 1:  # the owner
+            continue
+        name = user.get("displayName") or user.get("email") or f"user {user['id']}"
+        perms = user.get("permissions", 0)
+        if perms & SEERR_ADMIN:
+            warn(f"Seerr: {name} is an admin, so their Plex Watchlist can still "
+                 f"create requests. Remove admin in Seerr > Users if that's not wanted.")
+        elif perms & SEERR_AUTO_REQUEST:
+            api("POST", f"/user/{user['id']}/settings/permissions",
+                {"permissions": perms & ~SEERR_AUTO_REQUEST})
+            ok(f"Seerr: Auto-Request removed from {name}")
 
 
 def configure_seerr(token, radarr, sonarr):
@@ -397,8 +514,8 @@ def configure_seerr(token, radarr, sonarr):
             api("PUT", f"/settings/plex/library/{lib['id']}", {"enabled": True})
     ok(f"Seerr: Plex server {PLEX_HOST}:32400, all libraries on")
 
-    for app, kind, port, root in ((radarr, "radarr", 7878, "/data/media/movies"),
-                                  (sonarr, "sonarr", 8989, "/data/media/tv")):
+    for app, kind, port, root in ((radarr, "radarr", 7878, MOVIES_ROOT),
+                                  (sonarr, "sonarr", 8989, TV_ROOT)):
         conn = {"hostname": kind, "port": port, "apiKey": app.key,
                 "useSsl": False, "baseUrl": ""}
         test = api("POST", f"/settings/{kind}/test", conn)
@@ -431,6 +548,7 @@ def configure_seerr(token, radarr, sonarr):
     user.update(watchlistSyncMovies=True, watchlistSyncTv=True)
     api("POST", "/user/1/settings/main", user)
     ok("Seerr: Watchlist adds become requests, approved automatically")
+    step("Seerr auto-request", restrict_auto_requests, api)
 
     if not public.get("initialized"):
         api("POST", "/settings/initialize")
@@ -489,14 +607,24 @@ def main():
     step("qBittorrent setup", configure_qbittorrent, user, qbit_pw, password)
 
     for app, root, cat_field, category in (
-        (radarr, "/data/media/movies", "movieCategory", "radarr"),
-        (sonarr, "/data/media/tv", "tvCategory", "sonarr"),
+        (radarr, MOVIES_ROOT, "movieCategory", "radarr"),
+        (sonarr, TV_ROOT, "tvCategory", "sonarr"),
     ):
         log(app.name)
         step("login", app.set_login, user, password)
         step("root folder", app.ensure_root_folder, root)
         rename = "renameMovies" if app is radarr else "renameEpisodes"
         step("renaming", app.patch_config, "naming", "renaming on", **{rename: True})
+        step("quality profile", ensure_quality_profile, app)
+        step("quality sizes", set_quality_sizes, app)
+        # The nightly refresh otherwise rescans every movie/series folder,
+        # which keeps waking the media drive.
+        step("subtitles", app.patch_config, "mediamanagement",
+             "subtitles (.srt) come along with the video",
+             importExtraFiles=True, extraFileExtensions="srt")
+        step("folder rescans", app.patch_config, "mediamanagement",
+             "rescan folders only after a manual refresh",
+             rescanAfterRefresh="afterManual")
         step("recycle bin", app.patch_config, "mediamanagement",
              "recycle bin /data/recycle (7 days)",
              recycleBin="/data/recycle", recycleBinCleanupDays=7)
@@ -527,11 +655,15 @@ def main():
              "sign in, then re-run this script to finish Plex (including automatic "
              "library scans) and Seerr.")
 
+    seerr_profile = (f"Seerr uses the {PROFILE} profile for Radarr and Sonarr. If you "
+                     f"set Seerr up by hand, choose {PROFILE} for both.")
     if os.environ.get("CINEMARR_SETUP"):
-        print("\nDone.")  # setup.sh shows the remaining steps itself
+        print(f"\nDone. {seerr_profile}")  # setup.sh shows the remaining steps itself
         return
-    print("""
-Done. Left for you:
+    print(f"""
+Done. {seerr_profile}
+
+Left for you:
 
   Prowlarr  http://<BIND_IP>:9696 -> Indexers -> add your sources.
             They sync to Radarr and Sonarr automatically, each needing 10+
