@@ -190,7 +190,8 @@ configure_env() {
       gpu_gid=$(stat -c %g /dev/dri/renderD128)
     fi
   fi
-  # Keep the optional VPN if it was turned on by hand.
+  # Keep the optional add-ons if they were turned on by hand.
+  case $(env_get COMPOSE_FILE) in *compose.external-plex.yaml*) files=$files:compose.external-plex.yaml ;; esac
   case $(env_get COMPOSE_FILE) in *compose.vpn.yaml*) files=$files:compose.vpn.yaml ;; esac
   want COMPOSE_FILE "$files"
   want COMPOSE_PATH_SEPARATOR ":"
@@ -295,6 +296,11 @@ plex_claimed() {
 plex_signin() {
   say "Plex sign-in"
   local i url
+  case $(env_get COMPOSE_FILE) in *compose.external-plex.yaml*)
+    info "Using the Plex installed on this computer (compose.external-plex.yaml):"
+    info "sign in to it as usual. The next step connects the apps to it."
+    return 0 ;;
+  esac
   for i in $(seq 1 60); do
     docker compose exec -T plex curl -fs -o /dev/null http://localhost:32400/identity </dev/null 2>/dev/null && break
     [ "$i" = 60 ] && die "Plex didn't start. Check: docker compose logs plex"

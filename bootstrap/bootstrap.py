@@ -363,9 +363,23 @@ def configure_qbittorrent(user, password, arr_password):
 
 # ---------------------------------------------------------------- Plex
 def plex_token():
-    if not PLEX_PREFS.exists():
+    try:
+        prefs = PLEX_PREFS.read_text(errors="replace")
+    except FileNotFoundError:
         return None
-    m = re.search(r'PlexOnlineToken="([^"]+)"', PLEX_PREFS.read_text(errors="replace"))
+    except PermissionError:
+        # A Plex installed on the host usually keeps this file to itself.
+        # Ask for the token instead; it's used for this run only, never saved.
+        warn(f"Can't read Plex's settings file; Plex keeps it private to its own user.")
+        if not sys.stdin.isatty():
+            return None
+        host_file = os.path.join(os.environ.get("PLEX_PREFS_DIR", "<Plex data folder>"),
+                                 "Preferences.xml")
+        print("    On the server, show the token with:")
+        print(f"      sudo grep -o 'PlexOnlineToken=\"[^\"]*' '{host_file}' | cut -d'\"' -f2")
+        token = getpass.getpass("    Paste it here (Enter to skip Plex and Seerr): ").strip()
+        return token or None
+    m = re.search(r'PlexOnlineToken="([^"]+)"', prefs)
     return m.group(1) if m else None
 
 

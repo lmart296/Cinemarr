@@ -446,6 +446,115 @@ by **Servers**, and remove it. Your TVs and phones then stop listing it.
 
 ---
 
+## Optional: use a Plex you already run on the host (Linux)
+
+If Plex is already installed on the server as a normal package (for example
+Ubuntu's `plexmediaserver`), the stack can use it instead of its own Plex
+container.
+
+**1. Turn it on in `.env`:**
+
+```bash
+COMPOSE_FILE=compose.yaml:compose.linux.yaml:compose.external-plex.yaml
+DATA_DIR=/srv/media                   # must be an absolute path here
+MOVIES_DIR=Videos/Movies              # wherever your libraries already are
+TV_DIR=Videos/TV Shows
+# Only if Plex's data isn't in the Ubuntu package's usual place:
+#PLEX_PREFS_DIR=/var/lib/plexmediaserver/Library/Application Support/Plex Media Server
+# Only if Plex sees the drive at a different path than DATA_DIR:
+#PLEX_DATA_DIR=/srv/media
+```
+
+then `docker compose up -d --remove-orphans` (which also removes an old Plex
+container) and `docker compose run --rm bootstrap`.
+
+**What changes:**
+
+- No Plex container (and no `plex-lan` relay). Radarr, Sonarr and Seerr reach
+  your Plex at `host.docker.internal:32400`, which is the host itself.
+- Plex doesn't need to reach the stack at all: it notices new files in the
+  library folders on its own.
+- `setup.sh` skips the Plex sign-in; sign in to your Plex as you normally do.
+- The bootstrap still configures your Plex: libraries (it keeps the ones you
+  have), scanning on change only, DLNA off, secure connections preferred, and
+  **remote access off** unless `PLEX_REMOTE_ACCESS=true` in `.env`. Set that
+  first if you stream away from home.
+- To read Plex's sign-in token, the bootstrap mounts Plex's `Preferences.xml`
+  read-only. A native Plex usually keeps that file private, so the bootstrap
+  then asks you to paste the token (and shows the `sudo grep` command that
+  prints it). It's used for that run only, never saved.
+
+**Firewall (ufw).** Traffic from the containers to the host's Plex is ordinary
+incoming traffic for ufw, so allow it alongside your home network:
+
+```bash
+sudo ufw allow from 192.168.1.0/24 to any port 32400 proto tcp   # your devices
+sudo ufw allow from 172.16.0.0/12 to any port 32400 proto tcp    # the containers
+```
+
+(The web UIs are different: Docker publishes their ports past ufw entirely,
+which is why they're bound to `BIND_IP` instead.)
+
+**Plex must be able to read the downloads.** The apps run as `PUID`:`PGID`;
+Plex runs as its own `plex` user. Imports are hardlinks, so the library file is
+the same file qBittorrent wrote, with its owner and permissions. The apps
+create files readable by everyone (`644`), so Plex can read them. If your
+library is locked down to a group (folders `750`, files `640`), give Plex that
+group and make new folders inherit it:
+
+```bash
+sudo usermod -aG <PGID's group> plex          # e.g. media
+sudo find /srv/media/Videos -type d -exec chmod g+s {} +
+sudo systemctl restart plexmediaserver
+```
+
+### Optional: hardening the native Plex
+
+This is an example of sandboxing the Plex package with systemd, not something
+the stack needs. Adapt the paths, then check Plex still starts and plays
+(`journalctl -u plexmediaserver -f`).
+
+`sudo systemctl edit plexmediaserver`, then add:
+
+```ini
+[Unit]
+# Wait for the media drive instead of failing in a loop without it.
+RequiresMountsFor=/srv/media
+
+[Service]
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/plexmediaserver
+ProtectHome=yes
+# Hide everything under /srv, then show only the library, read-only
+# (not the downloads or incoming folders).
+TemporaryFileSystem=/srv:ro
+BindReadOnlyPaths=/srv/media/Videos
+```
+
+Check the result with `systemd-analyze security plexmediaserver`: the exposure
+score should drop well below the unhardened one.
+
+To stop a compromised Plex from reaching other devices at home, ufw can block
+**new** connections from the `plex` user into your network, while still
+allowing DNS to your router, broadcasts, and Plex's discovery (GDM). Replies to
+your TVs and phones are unaffected. Add before the final `COMMIT` in
+`/etc/ufw/before.rules` (adjust the addresses), then `sudo ufw reload`:
+
+```
+# Plex may not open new connections into the LAN (except DNS, broadcast, GDM)
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.1 -p udp --dport 53 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.1 -p tcp --dport 53 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.255 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -p udp --dport 32410:32414 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner plex -d 192.168.1.0/24 -m conntrack --ctstate NEW -j REJECT
+```
+
+This also stops Plex from reaching anything else on your network you might
+want it to, such as a NAS or a DLNA renderer.
+
+---
+
 ## Optional: VPN for downloads
 
 1. Pick a WireGuard VPN provider that
