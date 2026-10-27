@@ -48,7 +48,17 @@ PLEX_REMOTE = os.environ.get("PLEX_REMOTE_ACCESS", "false").lower() in ("1", "tr
 # macOS/Windows: devices reach Plex through the plex-lan relay (see compose.yaml).
 PLEX_VIA_RELAY = os.environ.get("PLEX_VIA_RELAY", "false").lower() in ("1", "true", "yes")
 SERVER_IP = os.environ.get("SERVER_IP", "").strip()
-PLEX_PREFS = CFG / "plex/Library/Application Support/Plex Media Server/Preferences.xml"
+PLEX_PREFS = Path(os.environ.get(
+    "PLEX_PREFS", CFG / "plex/Library/Application Support/Plex Media Server/Preferences.xml"))
+# Library folders, relative to DATA_DIR (init.sh validates them).
+MOVIES_DIR = os.environ.get("MOVIES_DIR", "media/movies").strip("/")
+TV_DIR = os.environ.get("TV_DIR", "media/tv").strip("/")
+# As Radarr and Sonarr see them...
+MOVIES_ROOT = f"/data/{MOVIES_DIR}"
+TV_ROOT = f"/data/{TV_DIR}"
+# ...and as Plex sees DATA_DIR: /data in the container, the host path for a
+# Plex installed on the host (compose.external-plex.yaml).
+PLEX_LIBRARY_ROOT = os.environ.get("PLEX_LIBRARY_ROOT", "/data").rstrip("/")
 SEERR = "http://seerr:5055/api/v1"
 SEERR_SETTINGS = CFG / "seerr/settings.json"
 # Seerr permission bits (server/lib/permissions.ts).
@@ -361,12 +371,16 @@ def plex_token():
 
 LIBRARIES = (
     # name, type, agent, scanner, folder (Plex's current defaults)
-    ("Movies", "movie", "tv.plex.agents.movie", "Plex Movie", "/data/media/movies"),
-    ("TV Shows", "show", "tv.plex.agents.series", "Plex TV Series", "/data/media/tv"),
+    ("Movies", "movie", "tv.plex.agents.movie", "Plex Movie", f"{PLEX_LIBRARY_ROOT}/{MOVIES_DIR}"),
+    ("TV Shows", "show", "tv.plex.agents.series", "Plex TV Series", f"{PLEX_LIBRARY_ROOT}/{TV_DIR}"),
 )
 
 
 def ensure_plex_libraries(base, token):
+    if not PLEX_LIBRARY_ROOT.startswith("/"):
+        warn(f"Plex libraries skipped: DATA_DIR must be an absolute path for a Plex "
+             f"installed on the host (got '{PLEX_LIBRARY_ROOT}')")
+        return
     headers = {"X-Plex-Token": token}
     sections = request("GET", f"{base}/library/sections", headers=headers)
     existing = sections["MediaContainer"].get("Directory", [])
@@ -486,8 +500,8 @@ def configure_seerr(token, radarr, sonarr):
             api("PUT", f"/settings/plex/library/{lib['id']}", {"enabled": True})
     ok(f"Seerr: Plex server {PLEX_HOST}:32400, all libraries on")
 
-    for app, kind, port, root in ((radarr, "radarr", 7878, "/data/media/movies"),
-                                  (sonarr, "sonarr", 8989, "/data/media/tv")):
+    for app, kind, port, root in ((radarr, "radarr", 7878, MOVIES_ROOT),
+                                  (sonarr, "sonarr", 8989, TV_ROOT)):
         conn = {"hostname": kind, "port": port, "apiKey": app.key,
                 "useSsl": False, "baseUrl": ""}
         test = api("POST", f"/settings/{kind}/test", conn)
@@ -579,8 +593,8 @@ def main():
     step("qBittorrent setup", configure_qbittorrent, user, qbit_pw, password)
 
     for app, root, cat_field, category in (
-        (radarr, "/data/media/movies", "movieCategory", "radarr"),
-        (sonarr, "/data/media/tv", "tvCategory", "sonarr"),
+        (radarr, MOVIES_ROOT, "movieCategory", "radarr"),
+        (sonarr, TV_ROOT, "tvCategory", "sonarr"),
     ):
         log(app.name)
         step("login", app.set_login, user, password)

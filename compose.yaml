@@ -53,6 +53,8 @@ services:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       REQUIRE_DATA_MARKER: ${REQUIRE_DATA_MARKER:-false}
+      MOVIES_DIR: ${MOVIES_DIR:-media/movies}
+      TV_DIR: ${TV_DIR:-media/tv}
     volumes:
       - ./scripts/init.sh:/init.sh:ro
       - ${CONFIG_DIR:-./config}:/cfg
@@ -70,8 +72,16 @@ services:
       PLEX_CLAIM: ${PLEX_CLAIM:-}
     volumes:
       - ${CONFIG_DIR:-./config}/plex:/config
-      # Read-only: even a compromised Plex cannot change or delete your media.
-      - ${DATA_DIR:-./data}/media:/data/media:ro
+      # Only the two library folders, read-only: even a compromised Plex cannot
+      # change or delete your media. Same paths as Radarr/Sonarr see them.
+      - type: bind
+        source: ${DATA_DIR:-./data}/${MOVIES_DIR:-media/movies}
+        target: /data/${MOVIES_DIR:-media/movies}
+        read_only: true
+      - type: bind
+        source: ${DATA_DIR:-./data}/${TV_DIR:-media/tv}
+        target: /data/${TV_DIR:-media/tv}
+        read_only: true
 
   # Docker Desktop (macOS/Windows) hides each device's address: Plex would see
   # every connection coming from the Docker VM, treat your TVs as remote, and
@@ -198,6 +208,10 @@ services:
       SERVER_IP: ${SERVER_IP:-}
       LAN_SUBNET: ${LAN_SUBNET:-192.168.1.0/24}
       PLEX_REMOTE_ACCESS: ${PLEX_REMOTE_ACCESS:-false}
+      MOVIES_DIR: ${MOVIES_DIR:-media/movies}
+      TV_DIR: ${TV_DIR:-media/tv}
+      # Where Plex sees DATA_DIR (compose.external-plex.yaml changes it).
+      PLEX_LIBRARY_ROOT: /data
     volumes:
       - ./bootstrap:/app:ro
       - ${CONFIG_DIR:-./config}:/cfg:ro

@@ -230,12 +230,71 @@ data/
   media/tv/         your TV library         ← Plex reads this (read-only)
   torrents/         downloads in progress   ← only qBittorrent writes here
   recycle/          replaced files, kept 7 days
+  incoming/         movies you copy in yourself (see below)
 ```
 
-**Bringing an existing library:** move it into `data/media/movies` and
-`data/media/tv`, or set `DATA_DIR` to a folder on your media drive that contains
-`media/movies` and `media/tv`. Then in Radarr/Sonarr use **Library Import** with
+The two library folders can be anywhere inside `DATA_DIR`: set `MOVIES_DIR` and
+`TV_DIR` in `.env` (relative to `DATA_DIR`, e.g. `Videos/Movies` and
+`Videos/TV Shows`). Everything (Radarr, Sonarr, Plex, Seerr) follows them.
+
+The `init` step never changes files in your library. It only makes sure the
+stack's user owns the library **folders** themselves (and the folders above
+them), adding read/write for that user and its group, never for anyone else.
+
+**Bringing a whole existing library:** point `DATA_DIR` at its drive and
+`MOVIES_DIR`/`TV_DIR` at its folders (or move it into `data/media/movies` and
+`data/media/tv`). Then in Radarr/Sonarr use **Library Import** with
 **Monitor: None** so they don't re-download what you have.
+
+### Adding movies you already have
+
+For a few files (a disc you ripped, a friend's copy), there's a drop folder:
+`incoming/` inside `DATA_DIR` (`data/incoming` with the defaults). Radarr and
+Sonarr can see it; Plex and qBittorrent can't. It's group-writable and setgid,
+so anything copied in belongs to the stack's group. To copy into it over the
+network, your login on the server must be the stack's user (`PUID`) or in its
+group (`PGID`): `sudo usermod -aG <that group> <you>`, then log in again.
+
+**1. Copy the files in**, one folder per movie, from another computer:
+
+```bash
+# macOS / Linux
+scp -r "Movie Title (2001)" you@server:/srv/media/incoming/
+scp -i ~/.ssh/id_ed25519 -r "Movie Title (2001)" you@server:/srv/media/incoming/
+```
+
+```powershell
+# Windows PowerShell (scp is built into Windows 10 and 11)
+scp -r "C:\Users\you\Videos\Movie Title (2001)" you@server:/srv/media/incoming/
+scp -i "$env:USERPROFILE\.ssh\id_ed25519" -r "C:\Users\you\Videos\Movie Title (2001)" you@server:/srv/media/incoming/
+```
+
+(Replace `/srv/media` with your `DATA_DIR`.)
+
+**2. Add the movie to Radarr first.** Radarr's **Manual Import** only matches
+files to movies Radarr already knows. For each one: **Movies → Add New**,
+search for it, **untick** "Start search for missing movie", and add it.
+
+**3. Import it.** Open the movie in Radarr → **Manual Import** → choose
+`/data/incoming` → check the match → set the import mode to **Move** →
+**Import**. Radarr renames it and moves it into the library, and Plex picks it
+up within seconds.
+
+Alternatively, put each movie in its own folder straight inside the library
+folder and use **Movies → Library Import**, which adds and matches them in one
+go (the files stay where they are, unrenamed).
+
+**4. Clean up the leftovers** (`.nfo`, `.jpg`, `.txt` and empty folders that
+came with the movie). Check what would go first, then delete:
+
+```bash
+find /srv/media/incoming -type f \( -iname '*.nfo' -o -iname '*.jpg' -o -iname '*.txt' \) -print
+find /srv/media/incoming -type f \( -iname '*.nfo' -o -iname '*.jpg' -o -iname '*.txt' \) -delete
+find /srv/media/incoming -mindepth 1 -type d -empty -delete
+```
+
+For TV, the same works in Sonarr (add the series first, then **Manual Import**
+from its page).
 
 Keep downloads and media on the **same drive** (both under `DATA_DIR`). Imports
 are then instant hardlinks instead of slow copies.
