@@ -390,6 +390,11 @@ widen the Plex rule to `sudo ufw allow 32400/tcp`.
 Also: use SSH keys and set `PasswordAuthentication no` in `/etc/ssh/sshd_config`,
 and turn on two-factor authentication for your Plex account.
 
+**Saving power (optional):** [docs/linux-power.md](docs/linux-power.md) covers
+spinning the media drive down, powertop, headless-by-default with a desktop on
+demand, and how to check what keeps the drive awake. It's all host-level; none
+of it is in the compose files.
+
 ---
 
 ## Updating
@@ -560,6 +565,11 @@ your TVs and phones are unaffected. Add before the final `COMMIT` in
 
 This also stops Plex from reaching anything else on your network you might
 want it to, such as a NAS or a DLNA renderer.
+
+**Already running these apps from your own compose file?**
+[docs/migrate-existing-server.md](docs/migrate-existing-server.md) walks
+through moving such a server onto this repo, keeping every app's settings and
+the library where it is, with a rollback.
 
 ---
 
