@@ -105,7 +105,8 @@ chmod ug+rwx /data/torrents /data/torrents/radarr /data/torrents/sonarr /data/re
 
 # incoming/: where you copy movies you already own (see README). Group-writable,
 # and setgid so files copied in get the stack's group, readable by the apps.
-chown -h "$PUID:$PGID" /data/incoming && chmod 2775 /data/incoming \
+# Closed to everyone else: other users on the server can't list or read it.
+chown -h "$PUID:$PGID" /data/incoming && chmod 2770 /data/incoming \
   || echo "init: warning: couldn't set up the incoming folder"
 
 # The apps keep their own keys in here (API keys, Plex sign-in), so only the

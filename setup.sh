@@ -97,6 +97,30 @@ mask2prefix() {
   while [ "$n" -gt 0 ]; do bits=$(( bits + (n & 1) )); n=$(( n >> 1 )); done
   echo $bits
 }
+# valid_ipv4 "192.168.1.50": four numbers 0-255, nothing else. Addresses end
+# up in compose port bindings and in commands (e.g. opening the browser on
+# Windows), so nothing but an address may get through.
+valid_ipv4() {
+  case $1 in "" | *[!0-9.]* | *..* | .* | *.) return 1 ;; esac
+  local IFS=. part count=0
+  for part in $1; do
+    [ "${#part}" -le 3 ] && [ "$part" -le 255 ] || return 1
+    count=$((count + 1))
+  done
+  [ "$count" -eq 4 ]
+}
+
+# check_ips: SERVER_IP and BIND_IP in .env must be IPv4 addresses (or empty).
+check_ips() {
+  local key value
+  for key in SERVER_IP BIND_IP; do
+    value=$(env_get "$key")
+    if [ -n "$value" ] && ! valid_ipv4 "$value"; then
+      die "$key in .env must be an IPv4 address like 192.168.1.50 (got '$value')."
+    fi
+  done
+}
+
 # network "192.168.1.50" 24 -> 192.168.1.0/24
 network() {
   local mask=$(( (0xFFFFFFFF << (32 - $2)) & 0xFFFFFFFF ))
@@ -178,7 +202,7 @@ configure_env() {
   [ -f .env ] && HAD_ENV=true
   $HAD_ENV && info "Found .env; checking it against this computer."
 
-  local files gpu_gid="" lan ip="" prefix="" dir
+  local files gpu_gid="" lan ip="" prefix="" dir i
   if $DESKTOP; then
     files=compose.yaml
     info "Docker Desktop: devices reach Plex through the plex-lan relay."
@@ -240,6 +264,14 @@ EOF
     info "Web pages open from: $(env_get BIND_IP)"
   fi
 
+  for i in "${!KEYS[@]}"; do
+    case ${KEYS[$i]} in SERVER_IP | BIND_IP)
+      if [ -n "${VALS[$i]}" ] && ! valid_ipv4 "${VALS[$i]}"; then
+        die "${KEYS[$i]} must be an IPv4 address like 192.168.1.50 (got '${VALS[$i]}')."
+      fi ;;
+    esac
+  done
+
   if [ ${#KEYS[@]} -eq 0 ]; then
     info ".env is up to date."
   else
@@ -251,6 +283,7 @@ EOF
     for i in "${!KEYS[@]}"; do env_set "${KEYS[$i]}" "${VALS[$i]}"; done
   fi
   chmod 600 .env
+  check_ips
   info ".env is readable only by you."
   if $DESKTOP && [ -z "$(env_get SERVER_IP)" ]; then
     warn "Without SERVER_IP, only this computer can reach Plex. Set it and re-run."

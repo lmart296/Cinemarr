@@ -259,7 +259,8 @@ them), adding read/write for that user and its group, never for anyone else.
 For a few files (a disc you ripped, a friend's copy), there's a drop folder:
 `incoming/` inside `DATA_DIR` (`data/incoming` with the defaults). Radarr and
 Sonarr can see it; Plex and qBittorrent can't. It's group-writable and setgid,
-so anything copied in belongs to the stack's group. To copy into it over the
+so anything copied in belongs to the stack's group, and closed to other users
+on the server. To copy into it over the
 network, your login on the server must be the stack's user (`PUID`) or in its
 group (`PGID`): `sudo usermod -aG <that group> <you>`, then log in again.
 
