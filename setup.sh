@@ -223,8 +223,8 @@ EOF
   if $WSL; then
     for dir in "$(env_get CONFIG_DIR)" "$(env_get DATA_DIR)" "$PWD"; do
       case $dir in /mnt/*)
-        warn "$dir is on a Windows drive: slower, no instant imports, and Plex only"
-        warn "notices new files every 15 minutes. Folders inside Ubuntu (~) are better." ;;
+        warn "$dir is on a Windows drive: slower, no instant imports, and Plex may not"
+        warn "notice new files on its own. Folders inside Ubuntu (~) are better." ;;
       esac
     done
   fi

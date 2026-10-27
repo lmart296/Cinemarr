@@ -9,14 +9,17 @@ Linux, macOS and Windows. Standard library only.
 Sets up:
   qBittorrent  its own password, save path, never-seed limits, UPnP off, blocked file types
   Radarr       login, root folder, qBittorrent client (remove on import),
-               renaming, recycle bin, HD-1080p profile and 1080p file sizes;
+               renaming, recycle bin, subtitles (.srt) imported with the video,
+               HD-1080p profile and 1080p file sizes;
                no Plex token (any old Plex connection is removed)
   Sonarr       same as Radarr, for TV
+               (both: rescan folders only after a manual refresh, so the
+               media drive can sleep)
   Prowlarr     login, sync to Radarr + Sonarr, 10+ seeders for every indexer
   Seerr        your Plex account as its admin, Plex server and libraries,
                Radarr + Sonarr (HD-1080p), auto-request from your Plex Watchlist
   Plex         Movies and TV Shows libraries,
-               scans for new files itself (on change + every 15 minutes),
+               scans for new files itself when they change (no scheduled scans),
                secure connections preferred, media deletion off, DLNA off,
                home address (SERVER_IP), LAN subnet (Linux), remote access
                off (unless PLEX_REMOTE_ACCESS=true, Linux only)
@@ -394,12 +397,12 @@ def configure_plex(token):
         warn("PLEX_REMOTE_ACCESS is ignored on macOS/Windows; remote access stays off")
         remote = False
     prefs = {
-        # Plex finds new imports itself, so Radarr/Sonarr never need the
-        # Plex token: on file changes, plus a full scan every 15 minutes.
-        "FSEventLibraryUpdatesEnabled": 1,
-        "FSEventLibraryPartialScanEnabled": 1,
-        "ScheduledLibraryUpdatesEnabled": 1,
-        "ScheduledLibraryUpdateInterval": 900,
+        # Plex finds new imports itself when files change, so Radarr/Sonarr
+        # never need the Plex token. No scheduled scans: they wake the media
+        # drive for nothing.
+        "FSEventLibraryUpdatesEnabled": 1,       # "Scan my library automatically"
+        "FSEventLibraryPartialScanEnabled": 1,   # "Run a partial scan when changes are detected"
+        "ScheduledLibraryUpdatesEnabled": 0,     # "Scan my library periodically"
         "secureConnections": 1,              # 1 = Preferred
         "allowMediaDeletion": 0,
         "DlnaEnabled": 0,                    # DLNA has no login; keep it off
@@ -417,7 +420,7 @@ def configure_plex(token):
         step(f"Plex {key}", request, "PUT",
              f"{base}/:/prefs?{urllib.parse.urlencode({key: value})}",
              headers={"X-Plex-Token": token})
-    ok(f"Plex: scans on change + every 15 min, secure connections preferred, "
+    ok(f"Plex: scans on change (no scheduled scans), secure connections preferred, "
        f"deletion off, DLNA off, "
        f"remote access {'on' if remote else 'off'}"
        + (f", address http://{SERVER_IP}:32400" if SERVER_IP else ""))
@@ -558,6 +561,14 @@ def main():
         step("renaming", app.patch_config, "naming", "renaming on", **{rename: True})
         step("quality profile", ensure_quality_profile, app)
         step("quality sizes", set_quality_sizes, app)
+        # The nightly refresh otherwise rescans every movie/series folder,
+        # which keeps waking the media drive.
+        step("subtitles", app.patch_config, "mediamanagement",
+             "subtitles (.srt) come along with the video",
+             importExtraFiles=True, extraFileExtensions="srt")
+        step("folder rescans", app.patch_config, "mediamanagement",
+             "rescan folders only after a manual refresh",
+             rescanAfterRefresh="afterManual")
         step("recycle bin", app.patch_config, "mediamanagement",
              "recycle bin /data/recycle (7 days)",
              recycleBin="/data/recycle", recycleBinCleanupDays=7)

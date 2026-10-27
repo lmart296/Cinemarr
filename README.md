@@ -111,7 +111,7 @@ you fill it in, overrides that.) This is the only step left by hand.
 Add a public-domain film (for example *Night of the Living Dead*, 1968) to your
 Plex Watchlist. Within a few minutes it should appear in Seerr → Radarr →
 qBittorrent, stop at 100%, disappear from qBittorrent, and show up in Plex
-(usually seconds after the import; at most 15 minutes).
+(usually seconds after the import).
 
 ### Setting it up by hand
 
@@ -137,10 +137,10 @@ What `setup.sh` does, if you'd rather do it yourself:
 | App | Settings |
 |---|---|
 | qBittorrent | Its own password (different from the other apps'); save path; **stop seeding at 100%**; UPnP off; skips programs, scripts, installers and archives inside torrents (`.exe`, `.scr`, `.lnk`, `.msi`, `.dmg`, `.pkg`, `.sh`, `.zip`, `.rar` and similar) |
-| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin; the **HD-1080p** profile and 1080p file sizes (see [Download quality](#download-quality)). They get no Plex token |
+| Radarr / Sonarr | Login required; root folder; qBittorrent with **remove after import**; renaming on (`Title (Year)`); 7-day recycle bin; subtitle files (`.srt`) imported along with the video; the **HD-1080p** profile and 1080p file sizes (see [Download quality](#download-quality)). They get no Plex token |
 | Prowlarr | Login required; pushes indexers to Radarr and Sonarr; every indexer needs **10+ seeders** |
 | Seerr | Your Plex account as admin; Plex server and all its libraries; Radarr and Sonarr (HD-1080p profile, library folders) as defaults; your Plex Watchlist turns into requests, approved automatically |
-| Plex | Scans for new files itself (as soon as a change is detected, and every 15 minutes); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
+| Plex | Scans for new files itself as soon as they change (no scheduled scans, so the media drive can sleep); secure connections **preferred**; media deletion off; DLNA off; home address `http://SERVER_IP:32400` published to your apps; remote access off (Linux: unless `PLEX_REMOTE_ACCESS=true`); Linux with Plex Pass: `LAN_SUBNET` marked as local |
 
 ---
 
@@ -231,7 +231,7 @@ could reach.**
 
 **Keys to your Plex account.** Radarr and Sonarr never get your Plex sign-in
 token: instead of them telling Plex to scan after each import, Plex watches the
-library itself, so a new movie can take up to 15 minutes to appear. Seerr does
+library itself and picks up new files within seconds. Seerr does
 hold your Plex sign-in (the bootstrap gives it the server's, which Seerr needs to
 read your Watchlist), so treat `config/seerr` as private. Turn on
 two-factor authentication for your Plex account.
@@ -387,6 +387,11 @@ often private to your user. From the project folder, run:
 On Linux you can instead give the files to `PUID`:
 `sudo chown -R $(id -u):$(id -g) data/media`.
 
+**A new download is in the library folder but not in Plex.** Plex only scans
+when it sees a file change, with no scheduled scans, so the media drive can
+sleep. If a change was missed (for example after the drive was remounted), use
+**Scan Library Files** on that library in Plex.
+
 **Library Import shows empty matches.** Reload the page and scroll slowly; Radarr
 matches in batches. Unmatched rows can be fixed by searching in the Movie column.
 
@@ -414,7 +419,8 @@ port-forwarded.
 
 On Windows, keep the project and `DATA_DIR` inside Ubuntu (your Linux home
 folder). A folder on a Windows drive (`/mnt/c`, `/mnt/d`) works but is slower,
-imports become copies, and Plex only notices new files on its 15-minute scan.
+imports become copies, and Plex may not notice new files on its own (use **Scan
+Library Files** in Plex when that happens).
 Untested so far: whether Windows Firewall lets other devices reach Plex without
 a prompt. If TVs can't connect, allow Docker Desktop through the firewall for
 private networks.
